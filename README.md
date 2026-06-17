@@ -66,7 +66,7 @@ app_name = "Claude Code"   # toast app name / Windows AUMID display label
 [events.permission]
 enabled = true
 title   = "Permission needed"   # body defaults to the hook `message`
-sound   = "native"              # "native" | "none" | { file = "/path/chime.wav" }
+sound   = "native"              # "native" | "none" | { file = "..." } | { files = [...] }
 ```
 
 Leave out any field and it falls back to that event's default. `sound` is one
@@ -76,6 +76,8 @@ of:
 - `"none"`: silent.
 - `{ file = "/path/to/chime.wav" }`: play your own WAV, OGG, MP3, or FLAC after
   a silent notification.
+- `{ files = ["/a.wav", "/b.wav"] }`: pick one of these at random each time the
+  event fires, then play it after a silent notification.
 
 ### Events
 
