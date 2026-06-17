@@ -11,8 +11,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  fmt:
-    name: rustfmt (nightly)
+  check:
+    name: hygiene + test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -25,19 +25,6 @@ jobs:
         with:
           components: rustfmt
 
-      - name: cargo +nightly fmt --check
-        run: cargo +nightly fmt --all --check
-
-  build-test:
-    name: build + test (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v6
-
       - name: Install Rust (stable, clippy)
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -47,15 +34,35 @@ jobs:
 
       # rodio/cpal link ALSA on Linux; required or the build fails. notify-rust
       # uses pure-Rust zbus on Linux, so no libdbus-1-dev is needed.
-      - name: Install ALSA (Linux)
-        if: runner.os == 'Linux'
+      - name: Install ALSA
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
+      - name: cargo +nightly fmt --check
+        run: cargo +nightly fmt --all --check
 
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
-      - name: cargo build
-        run: cargo build --workspace --locked
-
+      # All tests are platform-independent pure logic, so they only run here.
       - name: cargo test
         run: cargo test --workspace --all-features --locked
+
+  build:
+    name: build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux is covered by the `check` job; these verify the platform `cfg`
+        # code (windows.rs, the macOS sound path) compiles.
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo build
+        run: cargo build --workspace --locked
