@@ -1,9 +1,10 @@
-//! Builds and fires a notification from an explicit title, body, and sound.
+//! Builds and fires a dispatch: an optional notification message and an audio
+//! cue, each controlled independently.
 //!
 //! There is no configuration file and no event routing here: the caller (the
-//! `clamor` binary) derives the title and sound from command-line flags and the
-//! body from the hook `message`, then hands a fully-specified [`Notification`]
-//! to [`fire`].
+//! `clamor` binary) derives the toast and sound from command-line flags and the
+//! body from the hook `message`, then hands a fully-specified [`Dispatch`] to
+//! [`fire`].
 
 use crate::Result;
 use crate::audio;
@@ -19,18 +20,31 @@ pub enum Sound {
     Native,
     /// No sound.
     Silent,
-    /// Custom audio files. The notification is shown silently and one file,
-    /// chosen at random, is played after it.
+    /// Custom audio files. Any toast shown alongside is silent; one file,
+    /// chosen at random, is played.
     Files(Vec<Utf8PathBuf>),
 }
 
 impl Sound {
-    /// Interprets the raw `--sound` values into a [`Sound`].
+    /// Interprets the raw `--audio` values into a [`Sound`].
     ///
-    /// - no values: [`Sound::Native`] (a registered hook implies "notify me")
+    /// - no values: [`Sound::Native`] (audio unspecified rides on the toast)
     /// - a sole `"native"` / `"none"`: [`Sound::Native`] / [`Sound::Silent`]
     /// - anything else: every value is treated as a file path
     ///   ([`Sound::Files`]); the keywords are honored only when given alone.
+    ///
+    /// # Arguments
+    ///
+    /// * `values` - the raw `--audio` flag values, in the order given
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use clamor_core::Sound;
+    ///
+    /// assert_eq!(Sound::from_values(&[]), Sound::Native);
+    /// assert_eq!(Sound::from_values(&["none".to_owned()]), Sound::Silent);
+    /// ```
     #[must_use]
     pub fn from_values(values: &[String]) -> Self {
         match values {
@@ -42,37 +56,73 @@ impl Sound {
     }
 }
 
-/// A fully-specified notification: what to show and how it should sound.
+/// The notification message: a desktop toast's summary and body.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Notification {
+pub struct Toast {
     /// Toast summary line.
     pub title: String,
     /// Toast body.
     pub body: String,
-    /// The sound to play.
+}
+
+/// A dispatch: an optional notification message and an audio cue, each
+/// controlled independently.
+///
+/// The two channels are orthogonal: a dispatch may show a toast, play a sound,
+/// or both. The one interaction is that [`Sound::Native`] is the toast's own
+/// system sound, so it is audible only when [`Dispatch::toast`] is `Some`;
+/// without a toast there is nothing for it to ride on and it plays nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Dispatch {
+    /// The notification to show, or `None` to show no toast.
+    pub toast: Option<Toast>,
+    /// The audio cue to play.
     pub sound: Sound,
 }
 
-/// Shows the notification and plays any custom audio.
+/// Shows the notification (when present) and plays any custom audio.
+///
+/// The toast, if any, plays the native system sound only for [`Sound::Native`];
+/// every other case shows a silent toast, with custom audio (if any) played
+/// separately afterwards. Custom audio plays whether or not a toast is shown.
+///
+/// # Arguments
+///
+/// * `dispatch` - the toast to show (or `None`) and the audio cue to play
 ///
 /// # Errors
 ///
 /// Returns an error if showing the toast fails, or if a custom audio file
 /// cannot be opened, decoded, or played. Callers in hook mode should swallow
 /// the error and exit zero so the notifier never blocks the agent loop.
-pub fn fire(notification: &Notification) -> Result<()> {
-    // The native sound plays for `Sound::Native`; every other variant shows a
-    // silent toast, with custom audio (if any) played separately afterwards.
-    let sound = match notification.sound {
-        Sound::Native => NativeSound::Default,
-        Sound::Silent | Sound::Files(_) => NativeSound::Silent,
-    };
-    notify::show(&NotificationSpec {
-        title: notification.title.clone(),
-        body: notification.body.clone(),
-        sound,
-    })?;
-    if let Sound::Files(files) = &notification.sound
+///
+/// # Examples
+///
+/// ```no_run
+/// use clamor_core::{Dispatch, Sound, Toast};
+///
+/// clamor_core::fire(&Dispatch {
+///     toast: Some(Toast {
+///         title: "Task complete".to_owned(),
+///         body: "Claude Code has finished responding.".to_owned(),
+///     }),
+///     sound: Sound::Native,
+/// })?;
+/// # Ok::<(), clamor_core::Error>(())
+/// ```
+pub fn fire(dispatch: &Dispatch) -> Result<()> {
+    if let Some(toast) = &dispatch.toast {
+        let sound = match dispatch.sound {
+            Sound::Native => NativeSound::Default,
+            Sound::Silent | Sound::Files(_) => NativeSound::Silent,
+        };
+        notify::show(&NotificationSpec {
+            title: toast.title.clone(),
+            body: toast.body.clone(),
+            sound,
+        })?;
+    }
+    if let Sound::Files(files) = &dispatch.sound
         && let Some(path) = pick_audio(files)
     {
         audio::play_file(path)?;
