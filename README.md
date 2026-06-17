@@ -3,21 +3,12 @@
 Desktop notifications and sound for Claude Code hooks, on Windows, macOS, and
 Linux.
 
-Claude Code emits hook events when it wants your attention, whether that is a
-permission prompt, an idle wait, or a finished task, but it does not surface any
-of them on its own; there is no built-in toast and no sound. `clamor` is what
-fills that gap. You register it as the hook command, and on each event it reads
-the hook payload from `stdin`, resolves the configuration you have set for that
-event, and fires a desktop notification with either the native system sound or
-an audio file of your choosing.
-
-The reason this is a separate binary rather than a shell one-liner is
-portability. A raw `osascript` or `PowerShell` command is bound to a single
-platform, which becomes a problem the moment you keep one `settings.json`
-symlinked across machines (which I do). Since Claude Code resolves `clamor` on
-`PATH` on every operating system, appending the `.exe` for you on Windows, the
-exact same hook configuration works unchanged everywhere; you install the binary
-once per machine, and the configuration travels with it.
+Claude Code fires hook events (permission prompts, idle waits, finished tasks)
+but never surfaces them with a toast or a sound. `clamor` does: register it as
+your hook command, and each event becomes a desktop notification with either the
+native system sound or an audio file you pick. It is a single binary that
+resolves on `PATH` everywhere, so one `settings.json` works unchanged across all
+three platforms.
 
 ## Install
 
