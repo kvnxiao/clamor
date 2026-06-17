@@ -27,18 +27,9 @@ Windows registers the toast app ID:
 clamor init
 ```
 
-Add the printed snippet to your Claude Code `settings.json` (usually
-`~/.claude/settings.json`):
-
-```json
-{
-  "hooks": {
-    "Notification":  [{ "hooks": [{ "type": "command", "command": "clamor", "timeout": 10 }] }],
-    "Stop":          [{ "hooks": [{ "type": "command", "command": "clamor", "timeout": 10 }] }],
-    "SubagentStop":  [{ "hooks": [{ "type": "command", "command": "clamor", "timeout": 10 }] }]
-  }
-}
-```
+Paste the printed snippet into your Claude Code `settings.json` (usually
+`~/.claude/settings.json`). It registers `clamor` for the `Notification`,
+`Stop`, and `SubagentStop` events with a short per-hook timeout.
 
 Keep the timeout short. A custom audio file has to be a brief chime, or it gets
 cut off when the hook times out.
@@ -64,6 +55,9 @@ Config is TOML. `clamor` uses the first of these it finds, with no merging:
 
 ### Schema
 
+`clamor init` writes the full default config. Its shape, with one event shown
+(there is one `[events.<key>]` section per event; keys are in the table below):
+
 ```toml
 [notifications]
 enabled  = true            # master switch
@@ -73,21 +67,6 @@ app_name = "Claude Code"   # toast app name / Windows AUMID display label
 enabled = true
 title   = "Permission needed"   # body defaults to the hook `message`
 sound   = "native"              # "native" | "none" | { file = "/path/chime.wav" }
-
-[events.idle]
-enabled = true
-title   = "Waiting for you"
-sound   = "native"
-
-[events.stop]
-enabled = true
-title   = "Task complete"
-sound   = "native"
-
-[events.subagent_stop]
-enabled = false
-title   = "Subagent done"
-sound   = "none"
 ```
 
 Leave out any field and it falls back to that event's default. `sound` is one

@@ -165,6 +165,12 @@ impl Config {
         })
     }
 
+    /// Whether an event with this resolved config fires a notification: the
+    /// master switch and the event's own `enabled` flag must both be on.
+    pub(crate) fn fires(&self, resolved: &ResolvedEvent) -> bool {
+        self.notifications.enabled && resolved.enabled
+    }
+
     /// Resolves the configuration for an event by applying any user override
     /// on top of the built-in default.
     pub(crate) fn resolve_event(&self, event: &LogicalEvent) -> ResolvedEvent {
@@ -253,6 +259,22 @@ mod tests {
     }
 
     #[test]
+    fn fires_requires_master_switch_and_event_enabled() {
+        let on = Config::default();
+        assert!(on.fires(&builtin(&LogicalEvent::Stop)), "both on -> fires");
+        assert!(
+            !on.fires(&builtin(&LogicalEvent::SubagentStop)),
+            "event disabled by default -> does not fire"
+        );
+
+        let off: Config = toml::from_str("[notifications]\nenabled = false\n").expect("valid toml");
+        assert!(
+            !off.fires(&builtin(&LogicalEvent::Stop)),
+            "master switch off -> does not fire even when event is enabled"
+        );
+    }
+
+    #[test]
     fn partial_event_override_keeps_other_defaults() {
         // Only `title` is set; `enabled` and `sound` keep the built-in default.
         let toml = r#"
@@ -286,6 +308,12 @@ mod tests {
         ] {
             assert_eq!(config.resolve_event(&event), builtin(&event));
         }
+        // ...and its [notifications] section must match the in-code defaults,
+        // since the template and `Notifications::default()` are hand-kept in
+        // sync.
+        let defaults = Notifications::default();
+        assert_eq!(config.notifications.enabled, defaults.enabled);
+        assert_eq!(config.notifications.app_name, defaults.app_name);
     }
 
     #[test]

@@ -59,7 +59,7 @@ pub fn dispatch_test(input: &HookInput) -> Result<TestOutcome> {
     let config = Config::load()?;
     let event = input.logical_event();
     let resolved = config.resolve_event(&event);
-    let outcome = if config.notifications.enabled && resolved.enabled {
+    let outcome = if config.fires(&resolved) {
         TestOutcome::WouldFire
     } else {
         TestOutcome::Disabled
@@ -76,12 +76,9 @@ pub fn dispatch_test(input: &HookInput) -> Result<TestOutcome> {
 /// Pure resolution: decide the plan for a hook input, or `None` when nothing
 /// should fire (master switch off, or the event is disabled).
 fn plan(input: &HookInput, config: &Config) -> Option<DispatchPlan> {
-    if !config.notifications.enabled {
-        return None;
-    }
     let event = input.logical_event();
     let resolved = config.resolve_event(&event);
-    if !resolved.enabled {
+    if !config.fires(&resolved) {
         return None;
     }
     Some(build_plan(

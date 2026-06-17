@@ -50,7 +50,6 @@ impl HookInput {
     /// `Notification` events are split by their `notification_type`;
     /// `Stop`/`SubagentStop` map directly. Any other combination becomes
     /// [`LogicalEvent::Other`], which is disabled by default.
-    #[must_use]
     pub(crate) fn logical_event(&self) -> LogicalEvent {
         match self.hook_event_name.as_str() {
             "Notification" => match self.notification_type.as_deref() {
@@ -88,7 +87,6 @@ pub(crate) enum LogicalEvent {
 
 impl LogicalEvent {
     /// The configuration section key for this event.
-    #[must_use]
     pub(crate) fn config_key(&self) -> &str {
         match self {
             LogicalEvent::Permission => "permission",
