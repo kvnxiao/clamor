@@ -28,3 +28,22 @@ pub fn register_app_id(display_name: &str) -> Result<()> {
         .map_err(Error::RegisterAppId)?;
     Ok(())
 }
+
+/// Registers the `AppUserModelID` only if it is not already present.
+///
+/// Windows silently drops a toast whose AUMID is unregistered, so the
+/// notification path calls this to guarantee the toast can be shown even when
+/// the user has not run `clamor init`. If the key already exists it is left
+/// alone, since `init` owns the canonical `DisplayName`.
+///
+/// # Errors
+///
+/// Returns [`Error::RegisterAppId`] if the key is absent and cannot be created.
+pub(crate) fn ensure_registered(display_name: &str) -> Result<()> {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let path = format!("Software\\Classes\\AppUserModelId\\{WINDOWS_APP_ID}");
+    if hkcu.open_subkey(&path).is_ok() {
+        return Ok(());
+    }
+    register_app_id(display_name)
+}

@@ -72,10 +72,15 @@ pub(crate) fn show(spec: &NotificationSpec) -> Result<()> {
         }
     }
 
-    // On Windows, branding comes from the registered AppUserModelID rather than
-    // `appname` (which is a no-op there).
+    // Windows silently drops a toast whose AppUserModelID is not registered, so
+    // register ours (idempotent) and only brand the toast with it when that
+    // succeeds. Otherwise fall back to notify-rust's default app id so the
+    // toast still appears. On Windows, branding comes from this AUMID rather
+    // than `appname`, which is a no-op there.
     #[cfg(windows)]
-    notification.app_id(crate::windows::WINDOWS_APP_ID);
+    if crate::windows::ensure_registered(&spec.app_name).is_ok() {
+        notification.app_id(crate::windows::WINDOWS_APP_ID);
+    }
 
     notification.show().map_err(Error::Notify)?;
     Ok(())
