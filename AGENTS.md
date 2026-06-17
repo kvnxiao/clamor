@@ -9,19 +9,26 @@ macOS, and Linux.
 Cargo workspace, two root-level crates:
 
 - `clamor-core` (lib): `input` parses the hook `message` off stdin; `dispatch`
-  holds `Sound`/`Notification`/`fire`; `notify` shows the toast (`notify-rust`);
-  `audio` plays a custom file (`rodio`); `windows` registers the AUMID.
-- `clamor` (bin): clap flags build a `Notification` and call `fire`. Hook mode
-  only.
+  holds `Sound`/`Toast`/`Dispatch`/`fire`; `notify` shows the toast
+  (`notify-rust`); `audio` plays a custom file (`rodio`); `windows` registers
+  the AUMID.
+- `clamor` (bin): clap flags build a `Dispatch` (an optional `Toast` plus a
+  `Sound`) and call `fire`. Hook mode only.
 
 ## Model
 
 There is no config file. Each `settings.json` hook entry runs `clamor` with
-`--title`/`--body`/`--sound`, and Claude Code's hook matchers do the routing
-(`Notification` matches `notification_type`, `SubagentStop` matches agent type).
-A hook entry that exists notifies; one that does not is silent. `--sound` is
-`native`, `none`, or a file path (repeat the flag for a random pick). The body
-falls back to the hook `message` unless `--body` is given.
+`--notify`/`--title`/`--body`/`--audio`, and Claude Code's hook matchers do the
+routing (`Notification` matches `notification_type`, `SubagentStop` matches
+agent type). A hook entry that exists notifies; one that does not is silent.
+
+The notification and the audio cue are independent channels. `--notify` shows
+the toast (without it, `--title`/`--body` are ignored and no toast appears).
+`--audio` is `native`, `none`, or a file path (repeat the flag for a random
+pick). `native` is the toast's own system sound, so it is audible only with
+`--notify` and is the default when `--notify` is set and `--audio` is omitted; a
+custom file always shows any toast silently and plays on its own when there is
+no toast. The body falls back to the hook `message` unless `--body` is given.
 
 ## The invariant that matters
 

@@ -26,9 +26,23 @@ pub struct HookInput {
 impl HookInput {
     /// Parses a hook payload from a JSON string.
     ///
+    /// # Arguments
+    ///
+    /// * `json` - the raw hook payload received on standard input
+    ///
     /// # Errors
     ///
     /// Returns [`Error::ParseInput`] if the input is not valid JSON.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use clamor_core::HookInput;
+    ///
+    /// let input = HookInput::from_json(r#"{"message":"Bash(npm test)"}"#)?;
+    /// assert_eq!(input.message.as_deref(), Some("Bash(npm test)"));
+    /// # Ok::<(), clamor_core::Error>(())
+    /// ```
     pub fn from_json(json: &str) -> Result<Self> {
         serde_json::from_str(json).map_err(Error::ParseInput)
     }

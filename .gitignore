@@ -13,6 +13,9 @@ target
 # Contains mutation testing data
 **/mutants.out*/
 
+# Claude Code per-machine settings (holds machine-specific audio file paths)
+.claude/settings.local.json
+
 # RustRover
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore

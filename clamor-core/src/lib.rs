@@ -7,18 +7,20 @@
 //! command-line flags set in the hook's `settings.json` entry, and the body
 //! from the hook `message` on standard input.
 //!
-//! The entry point is [`fire`], which takes a fully-specified [`Notification`]
+//! The entry point is [`fire`], which takes a fully-specified [`Dispatch`]
 //! and performs the notification side-effect. Parse the hook payload (for its
 //! `message`) with [`HookInput::from_json`].
 //!
 //! # Examples
 //!
 //! ```no_run
-//! use clamor_core::{Notification, Sound};
+//! use clamor_core::{Dispatch, Sound, Toast};
 //!
-//! clamor_core::fire(&Notification {
-//!     title: "Task complete".to_owned(),
-//!     body: "Claude Code has finished responding.".to_owned(),
+//! clamor_core::fire(&Dispatch {
+//!     toast: Some(Toast {
+//!         title: "Task complete".to_owned(),
+//!         body: "Claude Code has finished responding.".to_owned(),
+//!     }),
 //!     sound: Sound::Native,
 //! })?;
 //! # Ok::<(), clamor_core::Error>(())
@@ -32,8 +34,9 @@ mod notify;
 #[cfg(windows)]
 mod windows;
 
-pub use crate::dispatch::Notification;
+pub use crate::dispatch::Dispatch;
 pub use crate::dispatch::Sound;
+pub use crate::dispatch::Toast;
 pub use crate::dispatch::fire;
 pub use crate::input::HookInput;
 use camino::Utf8PathBuf;
