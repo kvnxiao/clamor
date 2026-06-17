@@ -23,8 +23,6 @@ pub(crate) enum NativeSound {
 /// A fully-resolved notification ready to display.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NotificationSpec {
-    /// Application name (toast app label / grouping).
-    pub app_name: String,
     /// Notification title (summary line).
     pub title: String,
     /// Notification body.
@@ -56,7 +54,7 @@ mod native_sound {
 pub(crate) fn show(spec: &NotificationSpec) -> Result<()> {
     let mut notification = Notification::new();
     notification
-        .appname(&spec.app_name)
+        .appname(crate::APP_NAME)
         .summary(&spec.title)
         .body(&spec.body);
 
@@ -78,7 +76,7 @@ pub(crate) fn show(spec: &NotificationSpec) -> Result<()> {
     // toast still appears. On Windows, branding comes from this AUMID rather
     // than `appname`, which is a no-op there.
     #[cfg(windows)]
-    if crate::windows::ensure_registered(&spec.app_name).is_ok() {
+    if crate::windows::ensure_registered(crate::APP_NAME).is_ok() {
         notification.app_id(crate::windows::WINDOWS_APP_ID);
     }
 

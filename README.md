@@ -20,74 +20,100 @@ cargo install --git https://github.com/kvnxiao/clamor --locked clamor
 
 ## Setup
 
-`clamor init` writes a default config, prints the snippet to paste, and on
-Windows registers the toast app ID:
+`clamor` has no config file. Each hook entry in your Claude Code `settings.json`
+(usually `~/.claude/settings.json`) invokes `clamor` with flags that set the
+title and sound for that event. An event you don't wire up simply makes no
+sound; there's nothing to disable.
 
-```sh
-clamor init
+On Windows the toast app ID registers itself on the first notification, so there
+is no separate setup step.
+
+Add hook entries like this. Using the `args` array (rather than a single
+`command` string) avoids shell-quoting differences, so the same `settings.json`
+works unchanged on Windows, macOS, and Linux:
+
+```json
+{
+  "hooks": {
+    "Notification": [
+      { "matcher": "permission_prompt",
+        "hooks": [{ "type": "command", "command": "clamor",
+          "args": ["--title", "Permission needed", "--sound", "native"], "timeout": 10 }] },
+      { "matcher": "idle_prompt",
+        "hooks": [{ "type": "command", "command": "clamor",
+          "args": ["--title", "Waiting for you", "--sound", "native"], "timeout": 10 }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "clamor",
+          "args": ["--title", "Task complete",
+                   "--body", "Claude Code has finished responding.",
+                   "--sound", "native"], "timeout": 10 }] }
+    ],
+    "SubagentStop": [
+      { "matcher": "Explore",
+        "hooks": [{ "type": "command", "command": "clamor",
+          "args": ["--title", "Subagent done", "--body", "Explore finished.",
+                   "--sound", "none"], "timeout": 10 }] }
+    ]
+  }
+}
 ```
-
-Paste the printed snippet into your Claude Code `settings.json` (usually
-`~/.claude/settings.json`). It registers `clamor` for the `Notification`,
-`Stop`, and `SubagentStop` events with a short per-hook timeout.
 
 Keep the timeout short. A custom audio file has to be a brief chime, or it gets
 cut off when the hook times out.
 
-Test it without waiting for a real event:
+Test it without waiting for a real event by running `clamor` directly:
 
 ```sh
-clamor test stop
-clamor test permission
+clamor --title "Task complete" --sound native
+echo '{"message":"Bash(npm test)"}' | clamor --title "Permission needed" --sound native
 ```
 
 ## Configuration
 
-Config is TOML. `clamor` uses the first of these it finds, with no merging:
+There is no configuration file. The notification is built entirely from flags
+plus the hook payload on standard input:
 
-1. `$CLAMOR_CONFIG`
-2. `$CLAUDE_PROJECT_DIR/.clamor.toml`
-3. the user config dir, via the [`directories`](https://docs.rs/directories)
-   crate: `~/.config/clamor/config.toml` on Linux,
-   `~/Library/Application Support/clamor/config.toml` on macOS,
-   `%APPDATA%\clamor\config.toml` on Windows
-4. built-in defaults, if there's no file at all
+| Flag | Meaning |
+|---|---|
+| `--title <STR>` | Toast summary line. Defaults to `Claude Code`. |
+| `--body <STR>` | Toast body. Overrides the hook `message` from standard input. |
+| `--sound <VAL>` | `native`, `none`, or a path to an audio file. Repeat for several files. Defaults to `native`. |
 
-### Schema
+`--sound` is one of:
 
-`clamor init` writes the full default config. Its shape, with one event shown
-(there is one `[events.<key>]` section per event; keys are in the table below):
+- `native`: the OS's default notification sound.
+- `none`: silent.
+- a file path (`--sound /path/to/chime.wav`): play your own WAV, OGG, MP3, or
+  FLAC after a silent notification.
+- several file paths (`--sound /a.wav --sound /b.wav`): pick one at random each
+  time, then play it after a silent notification.
 
-```toml
-[notifications]
-enabled  = true            # master switch
-app_name = "Claude Code"   # toast app name / Windows AUMID display label
+When `--body` is omitted, the body is the hook `message` (e.g. the permission
+request text). `Stop`/`SubagentStop` carry no message, so give those a `--body`.
 
-[events.permission]
-enabled = true
-title   = "Permission needed"   # body defaults to the hook `message`
-sound   = "native"              # "native" | "none" | { file = "..." } | { files = [...] }
-```
+### Routing with matchers
 
-Leave out any field and it falls back to that event's default. `sound` is one
-of:
+Claude Code's hook `matcher` does the per-event routing `clamor` used to do
+internally:
 
-- `"native"`: the OS's default notification sound.
-- `"none"`: silent.
-- `{ file = "/path/to/chime.wav" }`: play your own WAV, OGG, MP3, or FLAC after
-  a silent notification.
-- `{ files = ["/a.wav", "/b.wav"] }`: pick one of these at random each time the
-  event fires, then play it after a silent notification.
+| Hook event | Matches on | Example matcher |
+|---|---|---|
+| `Notification` | notification type | `permission_prompt`, `idle_prompt`, `auth_success` |
+| `SubagentStop` | agent type | `Explore`, `Plan`, custom agent names |
+| `Stop` | (none — always fires) | |
 
-### Events
+So the same event can play different cues per matcher: a `permission_prompt`
+toast and an `idle_prompt` toast are two `Notification` matcher groups with
+different `--title`/`--sound`.
 
-| Hook event | `notification_type` | Config key | Default |
-|---|---|---|---|
-| `Notification` | `permission_prompt` | `permission` | on, native |
-| `Notification` | `idle_prompt` | `idle` | on, native |
-| `Stop` | | `stop` | on, native |
-| `SubagentStop` | | `subagent_stop` | off, silent |
-| `Notification` | anything else | the matching key | off |
+### Portability of custom audio
+
+`native` and `none` are portable, so a `settings.json` shared across machines
+(e.g. symlinked) keeps working everywhere. Custom audio file paths are
+machine-specific; make them portable with Claude Code's
+`${CLAUDE_PROJECT_DIR}` / `${CLAUDE_PLUGIN_ROOT}` placeholders, or accept that
+they only resolve on the machine they point at.
 
 ## Reliability
 
