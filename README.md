@@ -94,7 +94,9 @@ independent:
   `--audio` is omitted.
 - `none`: silent.
 - a file path (`--audio /path/to/chime.wav`): play your own WAV, OGG, MP3, or
-  FLAC. Any toast shown alongside is silent.
+  FLAC. Any toast shown alongside is silent. A leading `~` and `$VAR`/`${VAR}`
+  references are expanded by clamor (see [below](#portability-of-custom-audio));
+  an undefined variable is left as written, so the file just fails to open.
 - several file paths (`--audio /a.wav --audio /b.wav`): pick one at random each
   time.
 
@@ -119,7 +121,7 @@ internally:
 |---|---|---|
 | `Notification` | notification type | `permission_prompt`, `idle_prompt`, `auth_success` |
 | `SubagentStop` | agent type | `Explore`, `Plan`, custom agent names |
-| `Stop` | (none — always fires) | |
+| `Stop` | (none, always fires) | |
 
 So the same event can play different cues per matcher: a `permission_prompt`
 toast and an `idle_prompt` toast are two `Notification` matcher groups with
@@ -129,9 +131,32 @@ different `--title`/`--audio`.
 
 `native` and `none` are portable, so a `settings.json` shared across machines
 (e.g. symlinked) keeps working everywhere. Custom audio file paths are
-machine-specific; make them portable with Claude Code's
-`${CLAUDE_PROJECT_DIR}` / `${CLAUDE_PLUGIN_ROOT}` placeholders, or accept that
-they only resolve on the machine they point at.
+machine-specific, but a home-relative one is the exception: clamor expands a
+leading `~` and `$VAR`/`${VAR}` references in `--audio` itself, the same way on
+Windows, macOS, and Linux. An undefined variable is left as written (the file
+then just fails to open). So `~`/`$HOME` work alongside Claude Code's
+`${CLAUDE_PROJECT_DIR}` / `${CLAUDE_PLUGIN_ROOT}` placeholders for keeping one
+`settings.json` portable.
+
+For clamor to do the expanding, the string has to reach it unexpanded. Use the
+exec form: a hook entry with an `args` array is spawned directly with no shell,
+so `~`/`$VAR` pass through verbatim:
+
+```json
+{
+  "type": "command",
+  "command": "clamor",
+  "args": ["--notify", "--audio", "~/sounds/notify.wav"]
+}
+```
+
+clamor then expands the path itself, so one entry works on all three platforms.
+
+Avoid the shell form (a single `command` string, no `args`) for paths that need
+expanding: it routes through a per-OS shell (`sh -c` on macOS/Linux, PowerShell
+on Windows when Git Bash is absent) that may pre-expand the string before clamor
+sees it, and `~`/`$VAR`/`%VAR%` quoting has no single portable spelling across
+those shells.
 
 ## Reliability
 

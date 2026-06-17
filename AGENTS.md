@@ -30,6 +30,13 @@ pick). `native` is the toast's own system sound, so it is audible only with
 custom file always shows any toast silently and plays on its own when there is
 no toast. The body falls back to the hook `message` unless `--body` is given.
 
+clamor expands a leading `~` and `$VAR`/`${VAR}` in `--audio` paths
+(`dispatch::expand`, via `shellexpand`'s context variant), so one home-relative
+path is portable across OSes. Wire it with the hook **exec form** (`args` array,
+no shell) so the string reaches clamor unexpanded. The expansion is infallible
+by construction (undefined variable left literal, non-UTF-8 home left literal),
+so it adds no `Error` variant and the never-fail invariant is intact.
+
 ## The invariant that matters
 
 Hook mode never blocks the agent: it always exits 0 and never panics. `Stop` and
@@ -41,14 +48,16 @@ non-zero or panic in hook mode; that is the one rule the whole design protects.
 ## Conventions
 
 Rust style and lints live in `.claude/rules/rust/`; GitHub Actions pinning in
-`.claude/rules/github-actions/`. Formatting needs nightly rustfmt. The
-build/lint/test gate is in the README:
+`.claude/rules/github-actions/`. Formatting needs nightly rustfmt. Common tasks
+run through the `justfile` (`just` lists recipes); the full build/lint/test gate
+is:
 
 ```
-cargo +nightly fmt --all --check
-cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-cargo test --workspace --all-features --locked
+just check
 ```
+
+That runs `fmt-check` + `clippy` + `test`; `just fmt` reformats in place. The
+raw `cargo` invocations behind each recipe are in the README.
 
 Custom audio paths are machine-specific, so a shared `settings.json` should keep
 to `native`/`none` and leave file paths to per-machine entries.

@@ -18,6 +18,7 @@ notify-rust = { workspace = true }
 rodio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+shellexpand = { workspace = true }
 thiserror = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
