@@ -17,7 +17,6 @@ path = "src/main.rs"
 [dependencies]
 clamor-core = { workspace = true }
 clap = { workspace = true }
-fs-err = { workspace = true }
 
 [lints]
 workspace = true

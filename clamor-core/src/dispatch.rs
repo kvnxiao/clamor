@@ -1,266 +1,135 @@
-//! Hook dispatch: resolve a hook event against config and fire the result.
+//! Builds and fires a notification from an explicit title, body, and sound.
+//!
+//! There is no configuration file and no event routing here: the caller (the
+//! `clamor` binary) derives the title and sound from command-line flags and the
+//! body from the hook `message`, then hands a fully-specified [`Notification`]
+//! to [`fire`].
 
 use crate::Result;
 use crate::audio;
-use crate::config::Config;
-use crate::config::ResolvedEvent;
-use crate::config::SoundConfig;
-use crate::config::SoundKeyword;
-use crate::event::HookInput;
-use crate::event::LogicalEvent;
 use crate::notify;
 use crate::notify::NativeSound;
 use crate::notify::NotificationSpec;
 use camino::Utf8PathBuf;
 
-/// The resolved action for a hook event.
-#[derive(Debug, PartialEq, Eq)]
-struct DispatchPlan {
-    /// The notification to show.
-    spec: NotificationSpec,
-    /// Candidate custom audio files to play after showing the (silent)
-    /// notification. Empty for the native/none keywords; one entry for a single
-    /// `file`; several for a `files` list, from which one is picked at random.
-    custom_audio: Vec<Utf8PathBuf>,
+/// The sound to play with a notification.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Sound {
+    /// The platform's native notification sound.
+    Native,
+    /// No sound.
+    Silent,
+    /// Custom audio files. The notification is shown silently and one file,
+    /// chosen at random, is played after it.
+    Files(Vec<Utf8PathBuf>),
 }
 
-/// Whether a previewed event would also fire on a real hook.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TestOutcome {
-    /// The event is enabled, so real hooks will fire it too.
-    WouldFire,
-    /// The event, or the master switch, is disabled. The notification was shown
-    /// for preview only; real hooks will not fire it.
-    Disabled,
-}
-
-/// Dispatches a hook event: load config, decide what to do, and do it.
-///
-/// # Errors
-///
-/// Returns an error if config loading, showing the notification, or playing a
-/// custom sound fails. Callers in hook mode should swallow the error and exit
-/// zero so the notifier never blocks the agent loop.
-pub fn dispatch(input: &HookInput) -> Result<()> {
-    let config = Config::load()?;
-    if let Some(plan) = plan(input, &config) {
-        execute(&plan)?;
+impl Sound {
+    /// Interprets the raw `--sound` values into a [`Sound`].
+    ///
+    /// - no values: [`Sound::Native`] (a registered hook implies "notify me")
+    /// - a sole `"native"` / `"none"`: [`Sound::Native`] / [`Sound::Silent`]
+    /// - anything else: every value is treated as a file path
+    ///   ([`Sound::Files`]); the keywords are honored only when given alone.
+    #[must_use]
+    pub fn from_values(values: &[String]) -> Self {
+        match values {
+            [] => Sound::Native,
+            [only] if only.as_str() == "native" => Sound::Native,
+            [only] if only.as_str() == "none" => Sound::Silent,
+            paths => Sound::Files(paths.iter().map(Utf8PathBuf::from).collect()),
+        }
     }
-    Ok(())
 }
 
-/// Previews the notification for an event, showing it even when the event is
-/// disabled, so `clamor test` can verify the toast and sound. Returns whether
-/// the event would also fire on a real hook.
-///
-/// # Errors
-///
-/// Returns an error if config loading, showing the notification, or playing a
-/// custom sound fails.
-pub fn dispatch_test(input: &HookInput) -> Result<TestOutcome> {
-    let config = Config::load()?;
-    let event = input.logical_event();
-    let resolved = config.resolve_event(&event);
-    let outcome = if config.fires(&resolved) {
-        TestOutcome::WouldFire
-    } else {
-        TestOutcome::Disabled
-    };
-    execute(&build_plan(
-        &event,
-        resolved,
-        input,
-        &config.notifications.app_name,
-    ))?;
-    Ok(outcome)
-}
-
-/// Pure resolution: decide the plan for a hook input, or `None` when nothing
-/// should fire (master switch off, or the event is disabled).
-fn plan(input: &HookInput, config: &Config) -> Option<DispatchPlan> {
-    let event = input.logical_event();
-    let resolved = config.resolve_event(&event);
-    if !config.fires(&resolved) {
-        return None;
-    }
-    Some(build_plan(
-        &event,
-        resolved,
-        input,
-        &config.notifications.app_name,
-    ))
-}
-
-/// Builds the notification plan from a resolved event. Does not consider
-/// whether the event is enabled; callers gate on that.
-fn build_plan(
-    event: &LogicalEvent,
-    resolved: ResolvedEvent,
-    input: &HookInput,
-    app_name: &str,
-) -> DispatchPlan {
-    let (sound, custom_audio) = match resolved.sound {
-        SoundConfig::Keyword(SoundKeyword::Native) => (NativeSound::Default, Vec::new()),
-        SoundConfig::Keyword(SoundKeyword::None) => (NativeSound::Silent, Vec::new()),
-        SoundConfig::File { file } => (NativeSound::Silent, vec![file]),
-        SoundConfig::Files { files } => (NativeSound::Silent, files),
-    };
-    DispatchPlan {
-        spec: NotificationSpec {
-            app_name: app_name.to_owned(),
-            title: resolved.title,
-            body: body_for(event, input),
-            sound,
-        },
-        custom_audio,
-    }
+/// A fully-specified notification: what to show and how it should sound.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Notification {
+    /// Toast summary line.
+    pub title: String,
+    /// Toast body.
+    pub body: String,
+    /// The sound to play.
+    pub sound: Sound,
 }
 
 /// Shows the notification and plays any custom audio.
-fn execute(plan: &DispatchPlan) -> Result<()> {
-    notify::show(&plan.spec)?;
-    if let Some(path) = pick_audio(&plan.custom_audio) {
+///
+/// # Errors
+///
+/// Returns an error if showing the toast fails, or if a custom audio file
+/// cannot be opened, decoded, or played. Callers in hook mode should swallow
+/// the error and exit zero so the notifier never blocks the agent loop.
+pub fn fire(notification: &Notification) -> Result<()> {
+    // The native sound plays for `Sound::Native`; every other variant shows a
+    // silent toast, with custom audio (if any) played separately afterwards.
+    let sound = match notification.sound {
+        Sound::Native => NativeSound::Default,
+        Sound::Silent | Sound::Files(_) => NativeSound::Silent,
+    };
+    notify::show(&NotificationSpec {
+        title: notification.title.clone(),
+        body: notification.body.clone(),
+        sound,
+    })?;
+    if let Sound::Files(files) = &notification.sound
+        && let Some(path) = pick_audio(files)
+    {
         audio::play_file(path)?;
     }
     Ok(())
 }
 
-/// Picks the custom audio file to play from the resolved candidates: `None` for
-/// an empty list, the sole entry for one, or a uniformly random entry when
-/// several are configured.
+/// Picks the custom audio file to play: `None` for an empty list, the sole
+/// entry for one, or a uniformly random entry when several are configured.
 fn pick_audio(candidates: &[Utf8PathBuf]) -> Option<&Utf8PathBuf> {
     fastrand::choice(candidates)
-}
-
-/// The notification body for an event. `Notification` events use the hook
-/// `message`; `Stop`/`SubagentStop` use a sensible default.
-fn body_for(event: &LogicalEvent, input: &HookInput) -> String {
-    match event {
-        LogicalEvent::Stop => "Claude Code has finished responding.".to_owned(),
-        LogicalEvent::SubagentStop => match input.agent_type.as_deref() {
-            Some(agent) => format!("{agent} subagent finished."),
-            None => "Subagent finished.".to_owned(),
-        },
-        LogicalEvent::Permission | LogicalEvent::Idle | LogicalEvent::Other(_) => {
-            input.message.clone().unwrap_or_default()
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn input(json: &str) -> HookInput {
-        HookInput::from_json(json).expect("valid payload")
+    #[test]
+    fn from_values_defaults_to_native_when_empty() {
+        assert_eq!(Sound::from_values(&[]), Sound::Native);
     }
 
     #[test]
-    fn permission_uses_message_as_body() {
-        let config = Config::default();
-        let payload = input(
-            r#"{"hook_event_name":"Notification","notification_type":"permission_prompt","message":"Bash(npm test)"}"#,
-        );
-        let plan = plan(&payload, &config).expect("permission fires by default");
-        assert_eq!(plan.spec.title, "Permission needed");
-        assert_eq!(plan.spec.body, "Bash(npm test)");
-        assert_eq!(plan.spec.sound, NativeSound::Default);
-        assert!(plan.custom_audio.is_empty());
+    fn from_values_parses_keywords_alone() {
+        assert_eq!(Sound::from_values(&["native".to_owned()]), Sound::Native);
+        assert_eq!(Sound::from_values(&["none".to_owned()]), Sound::Silent);
     }
 
     #[test]
-    fn stop_uses_default_body() {
-        let config = Config::default();
-        let plan = plan(&input(r#"{"hook_event_name":"Stop"}"#), &config).expect("stop fires");
-        assert_eq!(plan.spec.title, "Task complete");
-        assert_eq!(plan.spec.body, "Claude Code has finished responding.");
-    }
-
-    #[test]
-    fn subagent_stop_body_includes_agent_type() {
-        let config: Config =
-            toml::from_str("[events.subagent_stop]\nenabled = true\n").expect("valid toml");
-        let plan = plan(
-            &input(r#"{"hook_event_name":"SubagentStop","agent_type":"Explore"}"#),
-            &config,
-        )
-        .expect("subagent fires when enabled");
-        assert_eq!(plan.spec.body, "Explore subagent finished.");
-    }
-
-    #[test]
-    fn subagent_stop_without_agent_type_uses_generic_body() {
-        let config: Config =
-            toml::from_str("[events.subagent_stop]\nenabled = true\n").expect("valid toml");
-        let plan = plan(&input(r#"{"hook_event_name":"SubagentStop"}"#), &config)
-            .expect("subagent fires when enabled");
-        assert_eq!(plan.spec.body, "Subagent finished.");
-    }
-
-    #[test]
-    fn subagent_stop_disabled_by_default() {
-        let config = Config::default();
-        assert!(plan(&input(r#"{"hook_event_name":"SubagentStop"}"#), &config).is_none());
-    }
-
-    #[test]
-    fn build_plan_resolves_disabled_event_for_preview() {
-        // subagent_stop is disabled by default, but `clamor test` previews it
-        // anyway, so build_plan must still resolve its title/body/sound.
-        let config = Config::default();
-        let payload = input(r#"{"hook_event_name":"SubagentStop","agent_type":"Explore"}"#);
-        let event = payload.logical_event();
-        let resolved = config.resolve_event(&event);
-        assert!(!resolved.enabled, "subagent_stop is disabled by default");
-        let plan = build_plan(&event, resolved, &payload, &config.notifications.app_name);
-        assert_eq!(plan.spec.title, "Subagent done");
-        assert_eq!(plan.spec.body, "Explore subagent finished.");
-        assert_eq!(plan.spec.sound, NativeSound::Silent);
-    }
-
-    #[test]
-    fn master_switch_off_suppresses_everything() {
-        let config: Config =
-            toml::from_str("[notifications]\nenabled = false\n").expect("valid toml");
-        assert!(plan(&input(r#"{"hook_event_name":"Stop"}"#), &config).is_none());
-    }
-
-    #[test]
-    fn disabled_event_is_suppressed() {
-        let config: Config =
-            toml::from_str("[events.stop]\nenabled = false\n").expect("valid toml");
-        assert!(plan(&input(r#"{"hook_event_name":"Stop"}"#), &config).is_none());
-    }
-
-    #[test]
-    fn none_sound_is_silent_without_custom_audio() {
-        let config: Config =
-            toml::from_str("[events.stop]\nsound = \"none\"\n").expect("valid toml");
-        let plan = plan(&input(r#"{"hook_event_name":"Stop"}"#), &config).expect("stop fires");
-        assert_eq!(plan.spec.sound, NativeSound::Silent);
-        assert!(plan.custom_audio.is_empty());
-    }
-
-    #[test]
-    fn file_sound_is_silent_with_custom_audio() {
-        let config: Config =
-            toml::from_str("[events.stop]\nsound = { file = \"/tmp/chime.wav\" }\n")
-                .expect("valid toml");
-        let plan = plan(&input(r#"{"hook_event_name":"Stop"}"#), &config).expect("stop fires");
-        assert_eq!(plan.spec.sound, NativeSound::Silent);
-        assert_eq!(plan.custom_audio, vec![Utf8PathBuf::from("/tmp/chime.wav")]);
-    }
-
-    #[test]
-    fn files_sound_is_silent_with_all_candidates() {
-        let config: Config =
-            toml::from_str("[events.stop]\nsound = { files = [\"/a.wav\", \"/b.wav\"] }\n")
-                .expect("valid toml");
-        let plan = plan(&input(r#"{"hook_event_name":"Stop"}"#), &config).expect("stop fires");
-        assert_eq!(plan.spec.sound, NativeSound::Silent);
+    fn from_values_parses_single_file() {
         assert_eq!(
-            plan.custom_audio,
-            vec![Utf8PathBuf::from("/a.wav"), Utf8PathBuf::from("/b.wav")]
+            Sound::from_values(&["/tmp/chime.wav".to_owned()]),
+            Sound::Files(vec![Utf8PathBuf::from("/tmp/chime.wav")])
+        );
+    }
+
+    #[test]
+    fn from_values_parses_multiple_files() {
+        assert_eq!(
+            Sound::from_values(&["/a.wav".to_owned(), "/b.wav".to_owned()]),
+            Sound::Files(vec![
+                Utf8PathBuf::from("/a.wav"),
+                Utf8PathBuf::from("/b.wav")
+            ])
+        );
+    }
+
+    #[test]
+    fn from_values_treats_keyword_with_files_as_paths() {
+        // A keyword is only honored when it is the sole value; mixed with other
+        // values it is just another (probably bogus) path candidate.
+        assert_eq!(
+            Sound::from_values(&["native".to_owned(), "/a.wav".to_owned()]),
+            Sound::Files(vec![
+                Utf8PathBuf::from("native"),
+                Utf8PathBuf::from("/a.wav")
+            ])
         );
     }
 
@@ -284,19 +153,5 @@ mod tests {
             let picked = pick_audio(&many).expect("non-empty list yields a pick");
             assert!(many.contains(picked), "pick is one of the candidates");
         }
-    }
-
-    #[test]
-    fn idle_uses_message_body() {
-        let config = Config::default();
-        let plan = plan(
-            &input(
-                r#"{"hook_event_name":"Notification","notification_type":"idle_prompt","message":"waiting"}"#,
-            ),
-            &config,
-        )
-        .expect("idle fires by default");
-        assert_eq!(plan.spec.title, "Waiting for you");
-        assert_eq!(plan.spec.body, "waiting");
     }
 }

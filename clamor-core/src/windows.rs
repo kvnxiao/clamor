@@ -1,8 +1,9 @@
 //! Windows `AppUserModelID` (AUMID) registration.
 //!
 //! Windows toasts need a registered AUMID, or `notify-rust` falls back to a
-//! generic PowerShell app id and the toast is mislabelled. `clamor init`
-//! registers the AUMID once; the notification path then references it.
+//! generic PowerShell app id and the toast is mislabelled. The notification
+//! path registers the AUMID lazily on the first toast, so there is no separate
+//! setup step.
 
 use crate::Error;
 use crate::Result;
@@ -10,7 +11,7 @@ use winreg::RegKey;
 use winreg::enums::HKEY_CURRENT_USER;
 
 /// The stable `AppUserModelID` used for `clamor`'s Windows toasts.
-pub const WINDOWS_APP_ID: &str = "Clamor.ClaudeCode";
+pub(crate) const WINDOWS_APP_ID: &str = "Clamor.ClaudeCode";
 
 /// The `HKCU` sub-path under which the AUMID is registered. The write
 /// (`register_app_id`) and the read-back probe (`ensure_registered`) must
@@ -27,7 +28,7 @@ fn app_id_subkey() -> String {
 ///
 /// Returns [`Error::RegisterAppId`] if the registry key cannot be created or
 /// its `DisplayName` value cannot be written.
-pub fn register_app_id(display_name: &str) -> Result<()> {
+pub(crate) fn register_app_id(display_name: &str) -> Result<()> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let (key, _) = hkcu
         .create_subkey(app_id_subkey())
@@ -40,9 +41,9 @@ pub fn register_app_id(display_name: &str) -> Result<()> {
 /// Registers the `AppUserModelID` only if it is not already present.
 ///
 /// Windows silently drops a toast whose AUMID is unregistered, so the
-/// notification path calls this to guarantee the toast can be shown even when
-/// the user has not run `clamor init`. If the key already exists it is left
-/// alone, since `init` owns the canonical `DisplayName`.
+/// notification path calls this on every toast to guarantee one can be shown.
+/// If the key already exists it is left alone, so the first toast owns the
+/// canonical `DisplayName`.
 ///
 /// # Errors
 ///
