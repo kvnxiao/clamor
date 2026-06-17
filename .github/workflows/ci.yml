@@ -47,22 +47,24 @@ jobs:
       - name: cargo test
         run: cargo test --workspace --all-features --locked
 
-  build:
-    name: build (${{ matrix.os }})
+  clippy:
+    name: clippy (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        # Linux is covered by the `check` job; these verify the platform `cfg`
-        # code (windows.rs, the macOS sound path) compiles.
+        # Linux is covered by the `check` job; these compile and lint the
+        # platform `cfg` code (windows.rs, the macOS sound path).
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install Rust (stable)
+      - name: Install Rust (stable, clippy)
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: cargo build
-        run: cargo build --workspace --locked
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
