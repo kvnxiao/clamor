@@ -39,7 +39,9 @@ pub use crate::config::Notifications;
 pub use crate::config::SoundConfig;
 pub use crate::config::SoundKeyword;
 pub use crate::config::user_config_path;
+pub use crate::dispatch::TestOutcome;
 pub use crate::dispatch::dispatch;
+pub use crate::dispatch::dispatch_test;
 pub use crate::event::HookInput;
 #[cfg(windows)]
 pub use crate::windows::WINDOWS_APP_ID;

@@ -3,6 +3,7 @@
 use crate::Result;
 use crate::audio;
 use crate::config::Config;
+use crate::config::ResolvedEvent;
 use crate::config::SoundConfig;
 use crate::config::SoundKeyword;
 use crate::event::HookInput;
@@ -21,6 +22,16 @@ struct DispatchPlan {
     custom_audio: Option<Utf8PathBuf>,
 }
 
+/// Whether a previewed event would also fire on a real hook.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TestOutcome {
+    /// The event is enabled, so real hooks will fire it too.
+    WouldFire,
+    /// The event, or the master switch, is disabled. The notification was shown
+    /// for preview only; real hooks will not fire it.
+    Disabled,
+}
+
 /// Dispatches a hook event: load config, decide what to do, and do it.
 ///
 /// # Errors
@@ -31,12 +42,35 @@ struct DispatchPlan {
 pub fn dispatch(input: &HookInput) -> Result<()> {
     let config = Config::load()?;
     if let Some(plan) = plan(input, &config) {
-        notify::show(&plan.spec)?;
-        if let Some(path) = plan.custom_audio {
-            audio::play_file(&path)?;
-        }
+        execute(plan)?;
     }
     Ok(())
+}
+
+/// Previews the notification for an event, showing it even when the event is
+/// disabled, so `clamor test` can verify the toast and sound. Returns whether
+/// the event would also fire on a real hook.
+///
+/// # Errors
+///
+/// Returns an error if config loading, showing the notification, or playing a
+/// custom sound fails.
+pub fn dispatch_test(input: &HookInput) -> Result<TestOutcome> {
+    let config = Config::load()?;
+    let event = input.logical_event();
+    let resolved = config.resolve_event(&event);
+    let outcome = if config.notifications.enabled && resolved.enabled {
+        TestOutcome::WouldFire
+    } else {
+        TestOutcome::Disabled
+    };
+    execute(build_plan(
+        &event,
+        resolved,
+        input,
+        &config.notifications.app_name,
+    ))?;
+    Ok(outcome)
 }
 
 /// Pure resolution: decide the plan for a hook input, or `None` when nothing
@@ -50,20 +84,45 @@ fn plan(input: &HookInput, config: &Config) -> Option<DispatchPlan> {
     if !resolved.enabled {
         return None;
     }
+    Some(build_plan(
+        &event,
+        resolved,
+        input,
+        &config.notifications.app_name,
+    ))
+}
 
+/// Builds the notification plan from a resolved event. Does not consider
+/// whether the event is enabled; callers gate on that.
+fn build_plan(
+    event: &LogicalEvent,
+    resolved: ResolvedEvent,
+    input: &HookInput,
+    app_name: &str,
+) -> DispatchPlan {
     let (sound, custom_audio) = match resolved.sound {
         SoundConfig::Keyword(SoundKeyword::Native) => (NativeSound::Default, None),
         SoundConfig::Keyword(SoundKeyword::None) => (NativeSound::Silent, None),
         SoundConfig::File { file } => (NativeSound::Silent, Some(file)),
     };
+    DispatchPlan {
+        spec: NotificationSpec {
+            app_name: app_name.to_owned(),
+            title: resolved.title,
+            body: body_for(event, input),
+            sound,
+        },
+        custom_audio,
+    }
+}
 
-    let spec = NotificationSpec {
-        app_name: config.notifications.app_name.clone(),
-        title: resolved.title,
-        body: body_for(&event, input),
-        sound,
-    };
-    Some(DispatchPlan { spec, custom_audio })
+/// Shows the notification and plays any custom audio.
+fn execute(plan: DispatchPlan) -> Result<()> {
+    notify::show(&plan.spec)?;
+    if let Some(path) = plan.custom_audio {
+        audio::play_file(&path)?;
+    }
+    Ok(())
 }
 
 /// The notification body for an event. `Notification` events use the hook
@@ -136,6 +195,21 @@ mod tests {
     fn subagent_stop_disabled_by_default() {
         let config = Config::default();
         assert!(plan(&input(r#"{"hook_event_name":"SubagentStop"}"#), &config).is_none());
+    }
+
+    #[test]
+    fn build_plan_resolves_disabled_event_for_preview() {
+        // subagent_stop is disabled by default, but `clamor test` previews it
+        // anyway, so build_plan must still resolve its title/body/sound.
+        let config = Config::default();
+        let payload = input(r#"{"hook_event_name":"SubagentStop","agent_type":"Explore"}"#);
+        let event = payload.logical_event();
+        let resolved = config.resolve_event(&event);
+        assert!(!resolved.enabled, "subagent_stop is disabled by default");
+        let plan = build_plan(&event, resolved, &payload, &config.notifications.app_name);
+        assert_eq!(plan.spec.title, "Subagent done");
+        assert_eq!(plan.spec.body, "Explore subagent finished.");
+        assert_eq!(plan.spec.sound, NativeSound::Silent);
     }
 
     #[test]

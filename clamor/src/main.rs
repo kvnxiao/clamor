@@ -135,11 +135,17 @@ fn run_init() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// `clamor test <event>`: synthesize a hook payload and dispatch it.
+/// `clamor test <event>`: synthesize a hook payload and preview its
+/// notification, even if the event is disabled in config.
 fn run_test(event: TestEvent) -> ExitCode {
-    match clamor_core::dispatch(&event.synthesize()) {
-        Ok(()) => {
-            println!("Fired '{event:?}' test notification (subject to your config).");
+    match clamor_core::dispatch_test(&event.synthesize()) {
+        Ok(outcome) => {
+            println!("Showed the {event:?} test notification.");
+            if matches!(outcome, clamor_core::TestOutcome::Disabled) {
+                println!(
+                    "Note: this event is disabled in your config, so real hooks will not fire it."
+                );
+            }
             ExitCode::SUCCESS
         }
         Err(error) => {
