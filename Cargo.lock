@@ -327,6 +327,7 @@ version = "0.1.0"
 dependencies = [
  "camino",
  "directories",
+ "fastrand",
  "fs-err",
  "notify-rust",
  "rodio",

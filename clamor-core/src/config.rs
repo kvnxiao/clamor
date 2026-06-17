@@ -26,7 +26,7 @@ app_name = "Claude Code"   # toast app name / Windows AUMID display label
 [events.permission]
 enabled = true
 title   = "Permission needed"   # body defaults to the hook `message`
-sound   = "native"              # "native" | "none" | { file = "/path/chime.wav" }
+sound   = "native"              # "native" | "none" | { file = "/path/chime.wav" } | { files = ["/a.wav", "/b.wav"] }
 
 [events.idle]
 enabled = true
@@ -105,6 +105,13 @@ pub enum SoundConfig {
     File {
         /// Path to the audio file to play.
         file: Utf8PathBuf,
+    },
+
+    /// A list of custom audio files: `{ files = ["/a.wav", "/b.wav"] }`. One
+    /// is chosen at random each time the event fires.
+    Files {
+        /// Candidate audio files; one is picked per notification.
+        files: Vec<Utf8PathBuf>,
     },
 }
 
@@ -355,6 +362,19 @@ mod tests {
             config.events.get("stop").and_then(|e| e.sound.clone()),
             Some(SoundConfig::File {
                 file: Utf8PathBuf::from("/tmp/chime.wav"),
+            })
+        );
+    }
+
+    #[test]
+    fn sound_config_parses_files_table() {
+        let config: Config =
+            toml::from_str("[events.stop]\nsound = { files = [\"/a.wav\", \"/b.wav\"] }\n")
+                .expect("valid toml");
+        assert_eq!(
+            config.events.get("stop").and_then(|e| e.sound.clone()),
+            Some(SoundConfig::Files {
+                files: vec![Utf8PathBuf::from("/a.wav"), Utf8PathBuf::from("/b.wav")],
             })
         );
     }

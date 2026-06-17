@@ -18,8 +18,10 @@ use camino::Utf8PathBuf;
 struct DispatchPlan {
     /// The notification to show.
     spec: NotificationSpec,
-    /// A custom audio file to play after showing the (silent) notification.
-    custom_audio: Option<Utf8PathBuf>,
+    /// Candidate custom audio files to play after showing the (silent)
+    /// notification. Empty for the native/none keywords; one entry for a single
+    /// `file`; several for a `files` list, from which one is picked at random.
+    custom_audio: Vec<Utf8PathBuf>,
 }
 
 /// Whether a previewed event would also fire on a real hook.
@@ -42,7 +44,7 @@ pub enum TestOutcome {
 pub fn dispatch(input: &HookInput) -> Result<()> {
     let config = Config::load()?;
     if let Some(plan) = plan(input, &config) {
-        execute(plan)?;
+        execute(&plan)?;
     }
     Ok(())
 }
@@ -64,7 +66,7 @@ pub fn dispatch_test(input: &HookInput) -> Result<TestOutcome> {
     } else {
         TestOutcome::Disabled
     };
-    execute(build_plan(
+    execute(&build_plan(
         &event,
         resolved,
         input,
@@ -98,9 +100,10 @@ fn build_plan(
     app_name: &str,
 ) -> DispatchPlan {
     let (sound, custom_audio) = match resolved.sound {
-        SoundConfig::Keyword(SoundKeyword::Native) => (NativeSound::Default, None),
-        SoundConfig::Keyword(SoundKeyword::None) => (NativeSound::Silent, None),
-        SoundConfig::File { file } => (NativeSound::Silent, Some(file)),
+        SoundConfig::Keyword(SoundKeyword::Native) => (NativeSound::Default, Vec::new()),
+        SoundConfig::Keyword(SoundKeyword::None) => (NativeSound::Silent, Vec::new()),
+        SoundConfig::File { file } => (NativeSound::Silent, vec![file]),
+        SoundConfig::Files { files } => (NativeSound::Silent, files),
     };
     DispatchPlan {
         spec: NotificationSpec {
@@ -114,12 +117,19 @@ fn build_plan(
 }
 
 /// Shows the notification and plays any custom audio.
-fn execute(plan: DispatchPlan) -> Result<()> {
+fn execute(plan: &DispatchPlan) -> Result<()> {
     notify::show(&plan.spec)?;
-    if let Some(path) = plan.custom_audio {
-        audio::play_file(&path)?;
+    if let Some(path) = pick_audio(&plan.custom_audio) {
+        audio::play_file(path)?;
     }
     Ok(())
+}
+
+/// Picks the custom audio file to play from the resolved candidates: `None` for
+/// an empty list, the sole entry for one, or a uniformly random entry when
+/// several are configured.
+fn pick_audio(candidates: &[Utf8PathBuf]) -> Option<&Utf8PathBuf> {
+    fastrand::choice(candidates)
 }
 
 /// The notification body for an event. `Notification` events use the hook
@@ -140,7 +150,6 @@ fn body_for(event: &LogicalEvent, input: &HookInput) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use camino::Utf8Path;
 
     fn input(json: &str) -> HookInput {
         HookInput::from_json(json).expect("valid payload")
@@ -156,7 +165,7 @@ mod tests {
         assert_eq!(plan.spec.title, "Permission needed");
         assert_eq!(plan.spec.body, "Bash(npm test)");
         assert_eq!(plan.spec.sound, NativeSound::Default);
-        assert_eq!(plan.custom_audio, None);
+        assert!(plan.custom_audio.is_empty());
     }
 
     #[test]
@@ -229,7 +238,7 @@ mod tests {
             toml::from_str("[events.stop]\nsound = \"none\"\n").expect("valid toml");
         let plan = plan(&input(r#"{"hook_event_name":"Stop"}"#), &config).expect("stop fires");
         assert_eq!(plan.spec.sound, NativeSound::Silent);
-        assert_eq!(plan.custom_audio, None);
+        assert!(plan.custom_audio.is_empty());
     }
 
     #[test]
@@ -239,10 +248,42 @@ mod tests {
                 .expect("valid toml");
         let plan = plan(&input(r#"{"hook_event_name":"Stop"}"#), &config).expect("stop fires");
         assert_eq!(plan.spec.sound, NativeSound::Silent);
+        assert_eq!(plan.custom_audio, vec![Utf8PathBuf::from("/tmp/chime.wav")]);
+    }
+
+    #[test]
+    fn files_sound_is_silent_with_all_candidates() {
+        let config: Config =
+            toml::from_str("[events.stop]\nsound = { files = [\"/a.wav\", \"/b.wav\"] }\n")
+                .expect("valid toml");
+        let plan = plan(&input(r#"{"hook_event_name":"Stop"}"#), &config).expect("stop fires");
+        assert_eq!(plan.spec.sound, NativeSound::Silent);
         assert_eq!(
-            plan.custom_audio.as_deref(),
-            Some(Utf8Path::new("/tmp/chime.wav"))
+            plan.custom_audio,
+            vec![Utf8PathBuf::from("/a.wav"), Utf8PathBuf::from("/b.wav")]
         );
+    }
+
+    #[test]
+    fn pick_audio_handles_empty_single_and_multi() {
+        assert_eq!(pick_audio(&[]), None, "empty list -> no audio");
+
+        let single = [Utf8PathBuf::from("/only.wav")];
+        assert_eq!(
+            pick_audio(&single),
+            single.first(),
+            "single entry is always chosen"
+        );
+
+        let many = vec![
+            Utf8PathBuf::from("/a.wav"),
+            Utf8PathBuf::from("/b.wav"),
+            Utf8PathBuf::from("/c.wav"),
+        ];
+        for _ in 0..50 {
+            let picked = pick_audio(&many).expect("non-empty list yields a pick");
+            assert!(many.contains(picked), "pick is one of the candidates");
+        }
     }
 
     #[test]
