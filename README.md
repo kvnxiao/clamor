@@ -150,8 +150,8 @@ no shell, so `~`/`$VAR` pass through verbatim:
 }
 ```
 
-`args` present ⇒ no shell ⇒ `~`/`$VAR` reach clamor untouched ⇒ clamor expands
-them the same way on every platform.
+With `args` present there is no shell, so `~`/`$VAR` reach clamor untouched and
+clamor expands them the same way on every platform.
 
 Avoid the **shell form** (a single `command` string, no `args`) for paths that
 need expanding: it routes through a per-OS shell (`sh -c` on macOS/Linux,
