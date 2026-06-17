@@ -32,20 +32,27 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
       # rodio/cpal link ALSA on Linux; required or the build fails. notify-rust
       # uses pure-Rust zbus on Linux, so no libdbus-1-dev is needed.
       - name: Install ALSA
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
 
-      - name: cargo +nightly fmt --check
-        run: cargo +nightly fmt --all --check
+      # Steps mirror the justfile recipes so CI and local development run the
+      # same commands; kept as separate steps so each phase fails visibly.
+      - name: just fmt-check
+        run: just fmt-check
 
-      - name: cargo clippy
-        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: just clippy
+        run: just clippy
 
       # All tests are platform-independent pure logic, so they only run here.
-      - name: cargo test
-        run: cargo test --workspace --all-features --locked
+      - name: just test
+        run: just test
 
   clippy:
     name: clippy (${{ matrix.os }})
@@ -66,5 +73,10 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: cargo clippy
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Install just
+        uses: taiki-e/install-action@v2
+        with:
+          tool: just
+
+      - name: just clippy
+        run: just clippy
