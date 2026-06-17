@@ -28,6 +28,9 @@ rodio = { version = "0.22", default-features = false, features = [
 ] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+# base-0 is the no-dependency core (the context-injecting expansion variants we
+# use); the default tilde/env/full convenience fns pull in `dirs`, which we don't.
+shellexpand = { version = "3", default-features = false, features = ["base-0"] }
 thiserror = "2.0"
 
 [workspace.lints.rust]

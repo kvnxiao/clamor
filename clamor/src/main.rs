@@ -36,7 +36,9 @@ struct Cli {
     /// Audio cue: `native`, `none`, or a path to an audio file. Repeat the flag
     /// to supply several files; one is chosen at random. With `--notify` and no
     /// `--audio`, the toast plays the native system sound; `native` is audible
-    /// only alongside a notification.
+    /// only alongside a notification. In a file path a leading `~` and
+    /// `$VAR`/`${VAR}` references are expanded by clamor; an undefined variable
+    /// is left as written.
     #[arg(long)]
     audio: Vec<String>,
 }
