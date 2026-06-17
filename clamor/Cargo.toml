@@ -1,0 +1,23 @@
+[package]
+name = "clamor"
+description = "Cross-platform desktop notifications and audio for Claude Code hooks."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+version.workspace = true
+readme = "README.md"
+keywords = ["claude", "notifications", "hooks", "desktop", "audio"]
+categories = ["command-line-utilities", "os"]
+
+[[bin]]
+name = "clamor"
+path = "src/main.rs"
+
+[dependencies]
+clamor-core = { workspace = true }
+clap = { workspace = true }
+fs-err = { workspace = true }
+
+[lints]
+workspace = true

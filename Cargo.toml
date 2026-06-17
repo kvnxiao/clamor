@@ -1,0 +1,112 @@
+[workspace]
+members = ["clamor-core", "clamor"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.95"
+license = "MIT"
+repository = "https://github.com/kvnxiao/clamor"
+version = "0.1.0"
+
+[workspace.dependencies]
+clamor-core = { path = "clamor-core", version = "0.1.0" }
+camino = { version = "1.2", features = ["serde1"] }
+clap = { version = "4", features = ["derive"] }
+directories = "6"
+fs-err = "3.3"
+notify-rust = "4"
+# rodio default features pull in recording (rtrb), mp4/aac, and dithering
+# (rand). We only need playback plus decoders for the formats a chime might
+# use, so trim to those.
+rodio = { version = "0.22", default-features = false, features = [
+    "playback",
+    "wav",
+    "vorbis",
+    "mp3",
+    "flac",
+] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+toml = "1.1"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+# Groups
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+cargo = { level = "deny", priority = -1 }
+
+# Cargo group escape hatch: notify-rust and rodio/cpal pull in several
+# duplicate transitive versions (windows-sys, etc.) we can't unify.
+multiple_crate_versions = "allow"
+
+# Don't panic
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+unreachable = "deny"
+string_slice = "deny"
+indexing_slicing = "deny"
+get_unwrap = "deny"
+unwrap_in_result = "deny"
+panic_in_result_fn = "deny"
+unchecked_time_subtraction = "deny"
+todo = "warn"
+unimplemented = "warn"
+
+# Don't fail silently
+let_underscore_future = "deny"
+let_underscore_must_use = "deny"
+unused_result_ok = "deny"
+map_err_ignore = "deny"
+assertions_on_result_states = "deny"
+
+# Async correctness
+await_holding_lock = "deny"
+await_holding_refcell_ref = "deny"
+if_let_mutex = "deny"
+large_futures = "deny"
+
+# Unsafe hygiene
+mem_forget = "deny"
+undocumented_unsafe_blocks = "deny"
+multiple_unsafe_ops_per_block = "deny"
+unnecessary_safety_doc = "deny"
+unnecessary_safety_comment = "deny"
+
+# Float correctness
+float_cmp = "deny"
+float_cmp_const = "deny"
+lossy_float_literal = "deny"
+invalid_upcast_comparisons = "deny"
+
+# Misc footguns
+rc_mutex = "deny"
+debug_assert_with_mut_call = "deny"
+iter_not_returning_iterator = "deny"
+expl_impl_clone_on_copy = "deny"
+infallible_try_from = "deny"
+dbg_macro = "deny"
+
+# Force #[expect(..., reason = "...")] over silent #[allow]
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+
+# Performance
+large_enum_variant = "warn"
+large_stack_arrays = "deny"
+needless_pass_by_value = "warn"
+
+# Style
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true

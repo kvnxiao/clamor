@@ -1,0 +1,4 @@
+# Allow .expect() in test code; production must use ? + typed errors.
+# `.unwrap()` is denied even in tests so failures carry a descriptive
+# message via `.expect(...)`.
+allow-expect-in-tests = true
