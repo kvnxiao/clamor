@@ -1,17 +1,17 @@
 # clamor
 
-Cross-platform desktop notifications and audio for [Claude
-Code](https://code.claude.com) hooks.
+Desktop notifications and a sound when Claude Code needs you, on Windows,
+macOS, and Linux.
 
-Claude Code fires hook events (permission prompts, idle waiting, task and
-subagent completion) but has no built-in desktop notification or sound.
-`clamor` is a small Rust binary registered as the hook command: it reads the
-hook JSON on stdin, looks up a per-event configuration, and fires a desktop
-notification with either the native system sound or a user-supplied audio file.
+Claude Code can signal that it wants attention (a permission prompt, going
+idle, a finished task) through hook events, but it won't show a notification or
+make a sound on its own. That's what `clamor` is for. You register it as the
+hook command; it reads the hook JSON on stdin and shows a notification with
+either the system sound or an audio file you point it at.
 
-Because Claude Code resolves `clamor` on `PATH` on every OS (`.exe` is
-auto-appended on Windows), **a single `settings.json` works unchanged on
-Windows, macOS, and Linux** — handy when the file is symlinked across machines.
+It's one binary, and Claude Code finds it on `PATH` (Windows adds the `.exe`),
+so the same `settings.json` works on all three OSes. That helps if you symlink
+that file across machines.
 
 ## Install
 
@@ -19,20 +19,19 @@ Windows, macOS, and Linux** — handy when the file is symlinked across machines
 cargo install --git https://github.com/kvnxiao/clamor --locked clamor
 ```
 
-`--locked` installs the exact dependency versions from the committed
-`Cargo.lock`.
+`--locked` pins the exact versions from the committed `Cargo.lock`.
 
 ## Setup
 
-Run `clamor init` to scaffold a default config, print the `settings.json`
-snippet to paste, and (on Windows) register the toast `AppUserModelID`:
+`clamor init` writes a default config, prints the snippet to paste, and on
+Windows registers the toast app ID:
 
 ```sh
 clamor init
 ```
 
-Then add the printed snippet to your Claude Code `settings.json`
-(`~/.claude/settings.json`):
+Add the printed snippet to your Claude Code `settings.json` (usually
+`~/.claude/settings.json`):
 
 ```json
 {
@@ -44,10 +43,10 @@ Then add the printed snippet to your Claude Code `settings.json`
 }
 ```
 
-The short `timeout` matters: a custom audio file must be a short chime, or it
-will be cut off when the hook times out.
+Keep the timeout short. A custom audio file has to be a brief chime, or it gets
+cut off when the hook times out.
 
-Verify it works without waiting for a real Claude Code event:
+Test it without waiting for a real event:
 
 ```sh
 clamor test stop
@@ -56,17 +55,15 @@ clamor test permission
 
 ## Configuration
 
-Configuration is TOML. The location is resolved in this order, **first found
-wins** (no merging):
+Config is TOML. `clamor` uses the first of these it finds, with no merging:
 
-1. `$CLAMOR_CONFIG` (explicit path)
-2. `$CLAUDE_PROJECT_DIR/.clamor.toml` (per-project)
-3. the user config directory, as resolved by the
-   [`directories`](https://docs.rs/directories) crate:
-   - Linux: `~/.config/clamor/config.toml`
-   - macOS: `~/Library/Application Support/clamor/config.toml`
-   - Windows: `%APPDATA%\clamor\config.toml`
-4. built-in defaults (used when no file is found)
+1. `$CLAMOR_CONFIG`
+2. `$CLAUDE_PROJECT_DIR/.clamor.toml`
+3. the user config dir, via the [`directories`](https://docs.rs/directories)
+   crate: `~/.config/clamor/config.toml` on Linux,
+   `~/Library/Application Support/clamor/config.toml` on macOS,
+   `%APPDATA%\clamor\config.toml` on Windows
+4. built-in defaults, if there's no file at all
 
 ### Schema
 
@@ -96,36 +93,35 @@ title   = "Subagent done"
 sound   = "none"
 ```
 
-Every field is optional; omitted fields fall back to the built-in default for
-that event. The `sound` value is one of:
+Leave out any field and it falls back to that event's default. `sound` is one
+of:
 
-- `"native"` — the platform's default notification sound (delivered through the
-  notification itself).
-- `"none"` — silent.
-- `{ file = "/path/to/chime.wav" }` — play a custom audio file (WAV, OGG, MP3,
-  or FLAC) after showing a silent notification.
+- `"native"`: the OS's default notification sound.
+- `"none"`: silent.
+- `{ file = "/path/to/chime.wav" }`: play your own WAV, OGG, MP3, or FLAC after
+  a silent notification.
 
 ### Events
 
 | Hook event | `notification_type` | Config key | Default |
 |---|---|---|---|
-| `Notification` | `permission_prompt` | `permission` | enabled, native |
-| `Notification` | `idle_prompt` | `idle` | enabled, native |
-| `Stop` | — | `stop` | enabled, native |
-| `SubagentStop` | — | `subagent_stop` | disabled, silent |
-| `Notification` | other (`auth_success`, `elicitation_*`, …) | key of the same name | disabled |
+| `Notification` | `permission_prompt` | `permission` | on, native |
+| `Notification` | `idle_prompt` | `idle` | on, native |
+| `Stop` | | `stop` | on, native |
+| `SubagentStop` | | `subagent_stop` | off, silent |
+| `Notification` | anything else | the matching key | off |
 
-## Behaviour
+## Reliability
 
-`Stop` and `SubagentStop` hooks can block Claude Code if they exit non-zero.
-`clamor` in hook mode **always exits zero and never panics** — any error is
-logged to stderr (only when `CLAMOR_DEBUG` is set) and swallowed, so the
-notifier can never stall the agent loop.
+The `Stop` and `SubagentStop` hooks block Claude Code if they exit non-zero, so
+in hook mode `clamor` always exits 0 and never panics. If something fails it
+goes to stderr (only when `CLAMOR_DEBUG` is set) and is otherwise ignored. The
+notifier can't stall your session.
 
 ## Development
 
-This is a Cargo workspace with two crates: `clamor-core` (library) and `clamor`
-(binary). Formatting requires nightly rustfmt; lint and test on stable:
+Two crates: `clamor-core` (the library) and `clamor` (the binary). Formatting
+needs nightly rustfmt; everything else runs on stable.
 
 ```sh
 rustup toolchain install nightly --component rustfmt
@@ -134,8 +130,7 @@ cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo test --workspace --all-features --locked
 ```
 
-On Linux, building requires ALSA development headers
-(`sudo apt-get install -y libasound2-dev`).
+Building on Linux needs ALSA headers: `sudo apt-get install -y libasound2-dev`.
 
 ## License
 

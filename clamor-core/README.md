@@ -1,8 +1,8 @@
 # clamor-core
 
-Core library for [`clamor`](https://github.com/kvnxiao/clamor): cross-platform
-desktop notifications and audio for Claude Code hooks.
+The library behind [`clamor`](https://github.com/kvnxiao/clamor): desktop
+notifications and audio for Claude Code hooks.
 
-This crate holds the hook-input parsing, configuration model, and the
-notification/audio dispatch logic. The user-facing binary lives in the
+It does the work: parsing the hook input, loading config, and deciding what
+notification (and sound) to fire. The actual command-line tool lives in the
 `clamor` crate. See the [workspace README](../README.md) for usage.
