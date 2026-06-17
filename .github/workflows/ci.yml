@@ -1,0 +1,70 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: hygiene + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # rustfmt.toml enables unstable options, so formatting must run on
+      # nightly. dtolnay/rust-toolchain@nightly is a channel ref, intentionally
+      # not version-pinned.
+      - name: Install Rust (nightly, rustfmt)
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+
+      - name: Install Rust (stable, clippy)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      # rodio/cpal link ALSA on Linux; required or the build fails. notify-rust
+      # uses pure-Rust zbus on Linux, so no libdbus-1-dev is needed.
+      - name: Install ALSA
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
+      - name: cargo +nightly fmt --check
+        run: cargo +nightly fmt --all --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+      # All tests are platform-independent pure logic, so they only run here.
+      - name: cargo test
+        run: cargo test --workspace --all-features --locked
+
+  clippy:
+    name: clippy (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux is covered by the `check` job; these compile and lint the
+        # platform `cfg` code (windows.rs, the macOS sound path).
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust (stable, clippy)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings

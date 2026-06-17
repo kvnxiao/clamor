@@ -1,0 +1,28 @@
+[package]
+name = "clamor-core"
+description = "Core library for clamor: cross-platform desktop notifications and audio for Claude Code hooks."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+version.workspace = true
+readme = "README.md"
+keywords = ["claude", "notifications", "hooks", "desktop", "audio"]
+categories = ["command-line-utilities", "os"]
+
+[dependencies]
+camino = { workspace = true }
+directories = { workspace = true }
+fs-err = { workspace = true }
+notify-rust = { workspace = true }
+rodio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+toml = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.56"
+
+[lints]
+workspace = true
