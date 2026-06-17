@@ -121,7 +121,7 @@ internally:
 |---|---|---|
 | `Notification` | notification type | `permission_prompt`, `idle_prompt`, `auth_success` |
 | `SubagentStop` | agent type | `Explore`, `Plan`, custom agent names |
-| `Stop` | (none — always fires) | |
+| `Stop` | (none, always fires) | |
 
 So the same event can play different cues per matcher: a `permission_prompt`
 toast and an `idle_prompt` toast are two `Notification` matcher groups with
@@ -131,16 +131,16 @@ different `--title`/`--audio`.
 
 `native` and `none` are portable, so a `settings.json` shared across machines
 (e.g. symlinked) keeps working everywhere. Custom audio file paths are
-machine-specific, but a home-relative path is portable: clamor itself expands a
-leading `~` and `$VAR`/`${VAR}` references in `--audio`, uniformly on Windows,
-macOS, and Linux. An undefined variable is left as written (the file then just
-fails to open). So `~`/`$HOME` join Claude Code's `${CLAUDE_PROJECT_DIR}` /
-`${CLAUDE_PLUGIN_ROOT}` placeholders as ways to keep one `settings.json` working
-everywhere.
+machine-specific, but a home-relative one is the exception: clamor expands a
+leading `~` and `$VAR`/`${VAR}` references in `--audio` itself, the same way on
+Windows, macOS, and Linux. An undefined variable is left as written (the file
+then just fails to open). So `~`/`$HOME` work alongside Claude Code's
+`${CLAUDE_PROJECT_DIR}` / `${CLAUDE_PLUGIN_ROOT}` placeholders for keeping one
+`settings.json` portable.
 
-For clamor to do the expanding, the string has to reach it **unexpanded**. Use
-the **exec form** — a hook entry with an `args` array is spawned directly with
-no shell, so `~`/`$VAR` pass through verbatim:
+For clamor to do the expanding, the string has to reach it unexpanded. Use the
+exec form: a hook entry with an `args` array is spawned directly with no shell,
+so `~`/`$VAR` pass through verbatim:
 
 ```json
 {
@@ -150,14 +150,13 @@ no shell, so `~`/`$VAR` pass through verbatim:
 }
 ```
 
-With `args` present there is no shell, so `~`/`$VAR` reach clamor untouched and
-clamor expands them the same way on every platform.
+clamor then expands the path itself, so one entry works on all three platforms.
 
-Avoid the **shell form** (a single `command` string, no `args`) for paths that
-need expanding: it routes through a per-OS shell (`sh -c` on macOS/Linux,
-PowerShell on Windows when Git Bash is absent), which may pre-expand the string
-before clamor sees it, and `~`/`$VAR`/`%VAR%` quoting has no single portable
-spelling across those shells.
+Avoid the shell form (a single `command` string, no `args`) for paths that need
+expanding: it routes through a per-OS shell (`sh -c` on macOS/Linux, PowerShell
+on Windows when Git Bash is absent) that may pre-expand the string before clamor
+sees it, and `~`/`$VAR`/`%VAR%` quoting has no single portable spelling across
+those shells.
 
 ## Reliability
 
