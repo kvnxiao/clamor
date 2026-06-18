@@ -86,6 +86,7 @@ independent:
 | `--title <STR>` | Toast summary line. Defaults to `Claude Code`. Used only with `--notify`. |
 | `--body <STR>` | Toast body. Overrides the hook `message` from standard input. Used only with `--notify`. |
 | `--audio <VAL>` | `native`, `none`, or a path to an audio file. Repeat for several files. |
+| `--volume <MULT>` | Volume for a custom `--audio` file, a `0.0..=1.0` multiplier. Defaults to `1.0`. No effect on `native`/`none`. |
 
 `--audio` is one of:
 
@@ -99,6 +100,11 @@ independent:
   an undefined variable is left as written, so the file just fails to open.
 - several file paths (`--audio /a.wav --audio /b.wav`): pick one at random each
   time.
+
+`--volume` scales a custom file's playback level by a `0.0..=1.0` multiplier
+(`1.0` is the file's normal level, `0.0` silent); values outside the range are
+clamped. It applies to whichever file the random pick lands on and has no effect
+on `native`/`none` (the system chime's volume is the OS's to control).
 
 The result is four combinations:
 

@@ -37,6 +37,7 @@ mod windows;
 pub use crate::dispatch::Dispatch;
 pub use crate::dispatch::Sound;
 pub use crate::dispatch::Toast;
+pub use crate::dispatch::Volume;
 pub use crate::dispatch::fire;
 pub use crate::input::HookInput;
 use camino::Utf8PathBuf;
