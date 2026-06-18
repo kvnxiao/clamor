@@ -11,6 +11,7 @@ use clamor_core::Dispatch;
 use clamor_core::HookInput;
 use clamor_core::Sound;
 use clamor_core::Toast;
+use clamor_core::Volume;
 use clap::Parser;
 use std::io::IsTerminal;
 use std::process::ExitCode;
@@ -41,6 +42,12 @@ struct Cli {
     /// is left as written.
     #[arg(long)]
     audio: Vec<String>,
+
+    /// Playback volume for a custom `--audio` file, as a linear multiplier
+    /// clamped to `0.0..=1.0`: `1.0` is the file's normal level and `0.0` is
+    /// silent. Has no effect on `native`/`none` audio.
+    #[arg(long, default_value_t = 1.0)]
+    volume: f32,
 }
 
 fn main() -> ExitCode {
@@ -70,22 +77,22 @@ fn run(cli: Cli) {
     };
     let dispatch = Dispatch {
         toast,
-        sound: resolve_sound(&cli.audio, cli.notify),
+        sound: resolve_sound(&cli.audio, cli.notify, Volume::new(cli.volume)),
     };
     if let Err(error) = clamor_core::fire(&dispatch) {
         debug_log(&format!("failed to fire notification: {error}"));
     }
 }
 
-/// Resolves the `--audio` values into a [`Sound`]. With no values the default
-/// depends on whether a toast is shown: a notification rides the native system
-/// sound, while a toast-less dispatch stays silent (there is nothing for the
-/// native sound to play on).
-fn resolve_sound(audio: &[String], notify: bool) -> Sound {
+/// Resolves the `--audio` values into a [`Sound`], carrying `volume` onto a
+/// custom-file cue. With no values the default depends on whether a toast is
+/// shown: a notification rides the native system sound, while a toast-less
+/// dispatch stays silent (there is nothing for the native sound to play on).
+fn resolve_sound(audio: &[String], notify: bool, volume: Volume) -> Sound {
     if audio.is_empty() && !notify {
         Sound::Silent
     } else {
-        Sound::from_values(audio)
+        Sound::from_values(audio, volume)
     }
 }
 
@@ -143,26 +150,34 @@ mod tests {
 
     #[test]
     fn empty_audio_with_notify_rides_native_sound() {
-        assert_eq!(resolve_sound(&[], true), Sound::Native);
+        assert_eq!(resolve_sound(&[], true, Volume::default()), Sound::Native);
     }
 
     #[test]
     fn empty_audio_without_notify_is_silent() {
         // No cue requested and no toast to carry the native sound: silent.
-        assert_eq!(resolve_sound(&[], false), Sound::Silent);
+        assert_eq!(resolve_sound(&[], false, Volume::default()), Sound::Silent);
     }
 
     #[test]
     fn explicit_keyword_ignores_notify_flag() {
-        assert_eq!(resolve_sound(&["none".to_owned()], true), Sound::Silent);
-        assert_eq!(resolve_sound(&["native".to_owned()], false), Sound::Native);
+        assert_eq!(
+            resolve_sound(&["none".to_owned()], true, Volume::default()),
+            Sound::Silent
+        );
+        assert_eq!(
+            resolve_sound(&["native".to_owned()], false, Volume::default()),
+            Sound::Native
+        );
     }
 
     #[test]
-    fn explicit_file_path_becomes_files() {
+    fn explicit_file_path_becomes_files_with_volume() {
+        // resolve_sound must forward the volume onto the custom-file cue; the
+        // path-parsing itself is covered by clamor-core's from_values tests.
         assert!(matches!(
-            resolve_sound(&["/tmp/chime.wav".to_owned()], false),
-            Sound::Files(_)
+            resolve_sound(&["/tmp/chime.wav".to_owned()], false, Volume::new(0.3)),
+            Sound::Files { volume, .. } if volume == Volume::new(0.3)
         ));
     }
 }

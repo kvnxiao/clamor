@@ -18,9 +18,10 @@ Cargo workspace, two root-level crates:
 ## Model
 
 There is no config file. Each `settings.json` hook entry runs `clamor` with
-`--notify`/`--title`/`--body`/`--audio`, and Claude Code's hook matchers do the
-routing (`Notification` matches `notification_type`, `SubagentStop` matches
-agent type). A hook entry that exists notifies; one that does not is silent.
+`--notify`/`--title`/`--body`/`--audio`/`--volume`, and Claude Code's hook
+matchers do the routing (`Notification` matches `notification_type`,
+`SubagentStop` matches agent type). A hook entry that exists notifies; one that
+does not is silent.
 
 The notification and the audio cue are independent channels. `--notify` shows
 the toast (without it, `--title`/`--body` are ignored and no toast appears).
@@ -29,6 +30,14 @@ pick). `native` is the toast's own system sound, so it is audible only with
 `--notify` and is the default when `--notify` is set and `--audio` is omitted; a
 custom file always shows any toast silently and plays on its own when there is
 no toast. The body falls back to the hook `message` unless `--body` is given.
+
+`--volume` is a single `0.0..=1.0` multiplier (`Volume`, clamped on construction
+with non-finite falling back to `1.0`) carried onto `Sound::Files` and applied to
+the picked file via `rodio`'s `Player::set_volume`. It is global to the `--audio`
+array (not per file) and a no-op for `native`/`none`, where there is no rodio
+playback to scale. Volume lives on the `Files` variant so it is unrepresentable
+where it has no meaning, which is why `Sound`/`Dispatch` drop the `Eq` derive
+(an `f32` is not `Eq`).
 
 clamor expands a leading `~` and `$VAR`/`${VAR}` in `--audio` paths
 (`dispatch::expand`, via `shellexpand`'s context variant), so one home-relative
