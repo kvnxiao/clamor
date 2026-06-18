@@ -14,12 +14,17 @@ categories = ["command-line-utilities", "os"]
 camino = { workspace = true }
 fastrand = { workspace = true }
 fs-err = { workspace = true }
-notify-rust = { workspace = true }
 rodio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 shellexpand = { workspace = true }
 thiserror = { workspace = true }
+
+# macOS shells out to `osascript` instead (see notify.rs): notify-rust's default
+# macOS backend is the deprecated NSUserNotification API, which silently shows
+# nothing for an unbundled CLI binary.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+notify-rust = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.56"
