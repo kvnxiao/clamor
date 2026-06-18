@@ -44,7 +44,9 @@ use camino::Utf8PathBuf;
 use thiserror::Error;
 
 /// The application name shown on the toast and used as the Windows AUMID
-/// display label.
+/// display label. Unused on macOS, where the `osascript` backend cannot set the
+/// notifying app name (the toast is attributed to the bundle it borrows).
+#[cfg(not(target_os = "macos"))]
 pub(crate) const APP_NAME: &str = "Claude Code";
 
 /// Errors produced while loading configuration, parsing hook input, or firing
@@ -61,8 +63,14 @@ pub enum Error {
     Io(#[from] std::io::Error),
 
     /// Showing the desktop notification failed.
+    #[cfg(not(target_os = "macos"))]
     #[error("failed to show desktop notification")]
     Notify(#[source] notify_rust::error::Error),
+
+    /// Showing the desktop notification via `osascript` failed (macOS).
+    #[cfg(target_os = "macos")]
+    #[error("failed to show desktop notification via osascript")]
+    Notify(#[source] std::io::Error),
 
     /// Opening the default audio output device failed.
     #[error("failed to open the default audio output device")]
