@@ -8,11 +8,12 @@ macOS, and Linux.
 
 Cargo workspace, two root-level crates:
 
-- `clamor-core` (lib): `input` parses the hook `message` off stdin; `dispatch`
-  holds `Sound`/`Toast`/`Dispatch`/`fire`; `notify` shows the toast
-  (`notify-rust` on Windows/Linux, `osascript` on macOS — see "macOS
-  notifications"); `audio` plays a custom file (`rodio`); `windows` registers
-  the AUMID.
+- `clamor-core` (lib): `input` parses the hook `message` off stdin; `condition`
+  evaluates a `--when` jq filter against the raw payload (embedded jaq — see
+  "`--when` conditions"); `dispatch` holds `Sound`/`Toast`/`Dispatch`/`fire`;
+  `notify` shows the toast (`notify-rust` on Windows/Linux, `osascript` on
+  macOS — see "macOS notifications"); `audio` plays a custom file (`rodio`);
+  `windows` registers the AUMID.
 - `clamor` (bin): clap flags build a `Dispatch` (an optional `Toast` plus a
   `Sound`) and call `fire`. Hook mode only.
 
@@ -47,6 +48,52 @@ no shell) so the string reaches clamor unexpanded. The expansion is infallible
 by construction (undefined variable left literal, non-UTF-8 home left literal),
 so it adds no `Error` variant and the never-fail invariant is intact.
 
+`--when <jq-filter>` gates the whole dispatch on the hook payload: the cue fires
+only if every `--when` (repeatable, ANDed) is truthy. It is a predicate only —
+it never alters the toast/sound, just whether they fire. Use it for conditions
+matchers cannot express, e.g. a `Stop` cue that stays quiet while background
+shells are still running: `--when '.background_tasks | length == 0'`. Wire it
+with the exec form so the filter reaches clamor unexpanded.
+
+## `--when` conditions
+
+The condition language is real jq, via embedded **jaq** (`jaq-core` +
+`jaq-std` + `jaq-json`, all default features for full jq). `condition::evaluate`
+compiles and runs the filter against the raw payload bytes within one scope and
+returns a `Verdict`. It is total and panic-free: every failure (non-JSON
+payload, unparseable/uncompilable filter, runtime error, no output) collapses to
+`Verdict::Unevaluable` rather than erroring out of the process.
+
+Evaluation is **fail-loud, not fail-closed**, and that split is the design:
+
+- `Pass` — first output truthy (jq's "neither null nor false"): the cue fires.
+- `Fail` — first output cleanly falsy (`null`/`false`): the cue is gated
+  **silently** (the condition was genuinely not met, so there is nothing to
+  report).
+- `Unevaluable` — clamor could not decide: the configured cue is withheld
+  (firing it would be a lie) and a **fallback error notification** is raised in
+  its place (default title, the reason as body, native sound), *overriding*
+  `--notify`/`--audio`/`--volume` — even `--audio none`. A broken gate is never
+  silent, the one thing a notifier must not be.
+
+The bin's `decide` ANDs the verdicts with this precedence: **any** `Unevaluable`
+wins as the error toast (a broken filter surfaces past a sibling's clean false);
+otherwise any `Fail` is a silent gate; all `Pass` fires. No payload at all
+(stdin is a terminal) is itself `Unevaluable`.
+
+jq truthiness is a sharp edge: `[]`, `""`, and `0` are all truthy, so test
+emptiness with `| length == 0`, never a bare path. An absent field degrades
+gracefully because the filter is *true*, not because of the fail mode: on an old
+client without `background_tasks`, `.background_tasks | length == 0` is
+`null | length == 0` -> `0 == 0` -> `true` -> fires.
+
+Keep all field assumptions in the filter string in `settings.json` (data, not
+code), so a payload-shape change is a config edit, not a rebuild. `CLAMOR_DEBUG`
+logs the `Unevaluable` reason. The jaq API churns across versions, so all jaq
+use is behind `condition.rs`; an upgrade touches one file. (`background_tasks`
+is undocumented — verified on Claude Code 2.1.186 — so re-verify after major
+upgrades.)
+
 ## macOS notifications
 
 macOS does not go through `notify-rust`. Its default `notify-rust` backend is the
@@ -77,6 +124,11 @@ Hook mode never blocks the agent: it always exits 0 and never panics. `Stop` and
 including dispatch errors, clap parse errors, and an unreadable stdin. Failures
 go to stderr only when `CLAMOR_DEBUG` is set. Do not add a path that can exit
 non-zero or panic in hook mode; that is the one rule the whole design protects.
+
+`--when` keeps this intact: `condition::evaluate` is total (returns a `Verdict`,
+never errors out), a silent `Suppress` is an early return, and the `Error` path
+calls `fire` (whose own failures are already swallowed) before returning. No new
+non-zero exit, no new panic path.
 
 ## Conventions
 

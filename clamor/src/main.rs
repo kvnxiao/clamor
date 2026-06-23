@@ -12,8 +12,11 @@ use clamor_core::HookInput;
 use clamor_core::Sound;
 use clamor_core::Toast;
 use clamor_core::Volume;
+use clamor_core::condition;
+use clamor_core::condition::Verdict;
 use clap::Parser;
 use std::io::IsTerminal;
+use std::io::Read;
 use std::process::ExitCode;
 
 /// Cross-platform desktop notifications and audio for Claude Code hooks.
@@ -48,6 +51,15 @@ struct Cli {
     /// silent. Has no effect on `native`/`none` audio.
     #[arg(long, default_value_t = 1.0)]
     volume: f32,
+
+    /// Fire only if the jq FILTER is truthy against the hook payload on stdin.
+    /// Repeatable: every `--when` must pass (logical AND). A filter that
+    /// evaluates to false gates the cue silently; a filter that cannot be
+    /// evaluated (typo, runtime error, no payload) instead raises a default
+    /// error notification so the breakage is never silent. Set `CLAMOR_DEBUG`
+    /// to see the reason.
+    #[arg(long)]
+    when: Vec<String>,
 }
 
 fn main() -> ExitCode {
@@ -63,11 +75,31 @@ fn main() -> ExitCode {
 /// Builds the dispatch from the flags plus the optional stdin `message` and
 /// fires it. Any failure is logged (only when `CLAMOR_DEBUG` is set) and
 /// swallowed.
+///
+/// The hook payload is read from standard input exactly once, up front: the
+/// `--when` gate parses it as JSON for the jq filters, and the toast body
+/// parses the same buffer as a typed [`HookInput`] for its `message` fallback.
 fn run(cli: Cli) {
+    let raw = stdin_bytes();
+
+    // Gate before building anything: a suppressed cue should do no work, and the
+    // error path overrides the configured cue entirely.
+    if !cli.when.is_empty() {
+        match decide(&cli.when, raw.as_deref()) {
+            Gate::Fire => {}
+            Gate::Suppress => return,
+            Gate::Error(reason) => {
+                debug_log(&reason);
+                fire_error_toast(&reason);
+                return;
+            }
+        }
+    }
+
     let toast = if cli.notify {
         let body = cli
             .body
-            .unwrap_or_else(|| stdin_message().unwrap_or_default());
+            .unwrap_or_else(|| message_from(raw.as_deref()).unwrap_or_default());
         Some(Toast {
             title: cli.title,
             body,
@@ -81,6 +113,57 @@ fn run(cli: Cli) {
     };
     if let Err(error) = clamor_core::fire(&dispatch) {
         debug_log(&format!("failed to fire notification: {error}"));
+    }
+}
+
+/// What the `--when` filters collectively decide for the configured cue.
+#[derive(Debug)]
+enum Gate {
+    /// Every filter passed: fire the configured dispatch.
+    Fire,
+    /// At least one filter cleanly evaluated to false (and none was
+    /// unevaluable): suppress the cue *silently*.
+    Suppress,
+    /// At least one filter could not be evaluated: suppress the configured cue
+    /// and raise the fallback error notification carrying this reason.
+    Error(String),
+}
+
+/// Combines every `--when` filter with logical AND, resolving the tri-state
+/// precedence: any unevaluable filter wins as [`Gate::Error`] (a broken filter
+/// must surface even past a sibling's clean false); otherwise any clean false
+/// is a silent [`Gate::Suppress`]; all-pass is [`Gate::Fire`]. A missing
+/// payload is itself an error, since nothing could be evaluated against it.
+fn decide(filters: &[String], payload: Option<&[u8]>) -> Gate {
+    let Some(payload) = payload else {
+        return Gate::Error("no payload on stdin to evaluate --when against".to_owned());
+    };
+    let mut any_fail = false;
+    for filter in filters {
+        match condition::evaluate(filter, payload) {
+            Verdict::Pass => {}
+            Verdict::Fail => any_fail = true,
+            Verdict::Unevaluable(reason) => return Gate::Error(reason),
+        }
+    }
+    if any_fail { Gate::Suppress } else { Gate::Fire }
+}
+
+/// Fires the fallback notification when a `--when` filter could not be
+/// evaluated. A broken gate must never be silent, so this deliberately ignores
+/// `--notify`/`--audio`/`--volume`: it always shows a default toast with the
+/// native system sound. It reuses [`clamor_core::fire`], so its own failures
+/// are swallowed and the never-block invariant holds.
+fn fire_error_toast(reason: &str) {
+    let dispatch = Dispatch {
+        toast: Some(Toast {
+            title: "clamor: --when could not be evaluated".to_owned(),
+            body: reason.to_owned(),
+        }),
+        sound: Sound::Native,
+    };
+    if let Err(error) = clamor_core::fire(&dispatch) {
+        debug_log(&format!("failed to fire error notification: {error}"));
     }
 }
 
@@ -113,22 +196,32 @@ fn handle_parse_error(error: &clap::Error) {
     }
 }
 
-/// Reads the hook payload from standard input and returns its `message`, if
-/// any. Returns `None` when stdin is a terminal (so interactive runs do not
-/// block waiting for input) or when the payload cannot be read or parsed.
-fn stdin_message() -> Option<String> {
-    let stdin = std::io::stdin();
+/// Reads the hook payload from standard input as raw bytes. Returns `None` when
+/// stdin is a terminal (so interactive runs do not block waiting for input) or
+/// when the payload cannot be read. The raw bytes feed both the `--when` jq
+/// gate and the typed [`HookInput`] message fallback, so stdin is consumed only
+/// once.
+fn stdin_bytes() -> Option<Vec<u8>> {
+    let mut stdin = std::io::stdin();
     if stdin.is_terminal() {
         return None;
     }
-    let raw = match std::io::read_to_string(stdin) {
-        Ok(raw) => raw,
+    let mut buf = Vec::new();
+    match stdin.read_to_end(&mut buf) {
+        Ok(_) => Some(buf),
         Err(error) => {
             debug_log(&format!("failed to read stdin: {error}"));
-            return None;
+            None
         }
-    };
-    match HookInput::from_json(&raw) {
+    }
+}
+
+/// Extracts the hook `message` from an already-read payload buffer, if present.
+/// Returns `None` when there is no payload, the bytes are not UTF-8, or the
+/// JSON cannot be parsed; a parse failure is logged under `CLAMOR_DEBUG`.
+fn message_from(payload: Option<&[u8]>) -> Option<String> {
+    let text = std::str::from_utf8(payload?).ok()?;
+    match HookInput::from_json(text) {
         Ok(input) => input.message,
         Err(error) => {
             debug_log(&format!("failed to parse hook input: {error}"));
@@ -179,5 +272,69 @@ mod tests {
             resolve_sound(&["/tmp/chime.wav".to_owned()], false, Volume::new(0.3)),
             Sound::Files { volume, .. } if volume == Volume::new(0.3)
         ));
+    }
+
+    /// One filter, owned, for the table below.
+    fn one(filter: &str) -> Vec<String> {
+        vec![filter.to_owned()]
+    }
+
+    #[test]
+    fn decide_all_pass_fires() {
+        let payload = br#"{"background_tasks":[]}"#;
+        assert!(matches!(
+            decide(&one(".background_tasks | length == 0"), Some(payload)),
+            Gate::Fire
+        ));
+    }
+
+    #[test]
+    fn decide_clean_false_suppresses() {
+        let payload = br#"{"background_tasks":[{"status":"running"}]}"#;
+        assert!(matches!(
+            decide(&one(".background_tasks | length == 0"), Some(payload)),
+            Gate::Suppress
+        ));
+    }
+
+    #[test]
+    fn decide_multiple_filters_are_anded() {
+        // Both pass -> Fire; flip either to false -> Suppress.
+        let payload = br#"{"a":true,"b":true}"#;
+        let both = vec![".a".to_owned(), ".b".to_owned()];
+        assert!(matches!(decide(&both, Some(payload)), Gate::Fire));
+
+        let payload = br#"{"a":true,"b":false}"#;
+        assert!(matches!(decide(&both, Some(payload)), Gate::Suppress));
+    }
+
+    #[test]
+    fn decide_unevaluable_wins_over_clean_false() {
+        // A broken filter must surface even when a sibling cleanly gates: the
+        // clean false comes first, the typo second, yet Error wins.
+        let payload = br#"{"a":false}"#;
+        let filters = vec![".a".to_owned(), "this is | not valid".to_owned()];
+        assert!(matches!(decide(&filters, Some(payload)), Gate::Error(_)));
+    }
+
+    #[test]
+    fn decide_missing_payload_is_error() {
+        // `--when` with no stdin (e.g. a terminal) cannot be evaluated, so it is
+        // a loud Error rather than a silent pass: the fallback toast fires.
+        assert!(matches!(
+            decide(&one(".background_tasks | length == 0"), None),
+            Gate::Error(_)
+        ));
+    }
+
+    #[test]
+    fn message_from_extracts_message_else_none() {
+        assert_eq!(
+            message_from(Some(br#"{"message":"Bash(npm test)"}"#)),
+            Some("Bash(npm test)".to_owned())
+        );
+        assert_eq!(message_from(Some(br"{}")), None, "no message field");
+        assert_eq!(message_from(None), None, "no payload at all");
+        assert_eq!(message_from(Some(b"not json")), None, "unparseable payload");
     }
 }

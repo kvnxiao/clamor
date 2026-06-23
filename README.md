@@ -87,6 +87,7 @@ independent:
 | `--body <STR>` | Toast body. Overrides the hook `message` from standard input. Used only with `--notify`. |
 | `--audio <VAL>` | `native`, `none`, or a path to an audio file. Repeat for several files. |
 | `--volume <MULT>` | Volume for a custom `--audio` file, a `0.0..=1.0` multiplier. Defaults to `1.0`. No effect on `native`/`none`. |
+| `--when <FILTER>` | Fire only if the jq `FILTER` is truthy against the hook payload. Repeatable (logical AND). See [Conditional cues](#conditional-cues-with---when). |
 
 `--audio` is one of:
 
@@ -132,6 +133,62 @@ internally:
 So the same event can play different cues per matcher: a `permission_prompt`
 toast and an `idle_prompt` toast are two `Notification` matcher groups with
 different `--title`/`--audio`.
+
+### Conditional cues with `--when`
+
+Matchers route by event/tool/agent type. For conditions they can't express,
+`--when <FILTER>` gates the cue on the hook payload itself, using real
+[jq](https://jqlang.org/) (embedded, so no `jq` binary is needed). The cue fires
+only if the filter is truthy; repeat `--when` to require several (logical AND).
+
+The motivating case: the `Stop` hook fires whenever the agent returns control,
+even when background shells it started are still running. Claude Code reports
+those on the payload as `background_tasks`, so gate the cue on that array being
+empty:
+
+```json
+{
+  "type": "command",
+  "command": "clamor",
+  "args": [
+    "--when", ".background_tasks | length == 0",
+    "--notify", "--body", "Ready for your input",
+    "--audio", "~/sounds/done.wav"
+  ]
+}
+```
+
+Use the exec form (`args` array), so the filter reaches clamor unexpanded by any
+shell.
+
+A filter that evaluates to **false** gates the cue **silently** — the condition
+just wasn't met. But a filter clamor **cannot evaluate** (a typo, a runtime
+error, or no payload on stdin) does the opposite of hiding: it suppresses the
+configured cue and raises a **fallback error notification** in its place, so a
+broken gate is never silent. That fallback overrides `--notify`/`--audio` (it
+shows even with `--audio none`). Set `CLAMOR_DEBUG=1` to see why.
+
+Two jq gotchas worth knowing:
+
+- **Emptiness needs `| length == 0`.** In jq `[]`, `""`, and `0` are all truthy,
+  so a bare `.background_tasks` is *always* truthy. Pipe through `length`.
+- **Absent fields degrade to true.** On an older Claude Code without
+  `background_tasks`, the field is `null`, and `null | length` is `0`, so
+  `.background_tasks | length == 0` is `true` and the cue fires — the right
+  default.
+
+Validate a filter against a sample payload before committing it:
+
+```sh
+echo '{"background_tasks":[]}' | CLAMOR_DEBUG=1 clamor \
+  --when '.background_tasks | length == 0' --notify --audio none
+# fires => Pass; silent => Fail; error toast => couldn't evaluate (reason on stderr)
+```
+
+`background_tasks` is not in the public hooks docs (verified on Claude Code
+2.1.186), so treat its shape as unstable and re-check after major upgrades.
+Because the filter lives in `settings.json` (data, not code), a payload change
+is a config edit, not a rebuild.
 
 ### Portability of custom audio
 

@@ -15,6 +15,13 @@ camino = { version = "1.2", features = ["serde1"] }
 clap = { version = "4", features = ["derive"] }
 fastrand = "2"
 fs-err = "3"
+# Embedded jq for `--when` payload conditions. The three crates must resolve as
+# a set: jaq-json 2.0 depends on jaq-core 3.1 and jaq-std 3.0. Default features
+# are kept on (full jq: regex/time/format/math builtins) so any jq filter a gate
+# author writes works without a feature flag. Cargo.lock pins the exact set.
+jaq-core = "3.1"
+jaq-json = "2.0"
+jaq-std = "3.0"
 notify-rust = "4"
 # rodio default features pull in recording (rtrb), mp4/aac, and dithering
 # (rand). We only need playback plus decoders for the formats a chime might
