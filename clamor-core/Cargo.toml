@@ -14,6 +14,9 @@ categories = ["command-line-utilities", "os"]
 camino = { workspace = true }
 fastrand = { workspace = true }
 fs-err = { workspace = true }
+jaq-core = { workspace = true }
+jaq-json = { workspace = true }
+jaq-std = { workspace = true }
 rodio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

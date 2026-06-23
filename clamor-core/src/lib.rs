@@ -27,6 +27,7 @@
 //! ```
 
 mod audio;
+pub mod condition;
 mod dispatch;
 mod input;
 mod notify;
